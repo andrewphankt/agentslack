@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJsonHeaders } from "@/hooks/useActorUserId";
+import { RoomSwitcher } from "./RoomSwitcher";
 
 type Channel = { id: string; kind: string; name: string; title: string };
 type Member = { userId: string; name: string; role: string };
@@ -273,12 +273,7 @@ export default function RoomPage() {
       <aside
         className={`${sidebarOpen ? "flex" : "hidden"} w-60 shrink-0 flex-col gap-4 overflow-y-auto border-r border-zinc-800 bg-zinc-950 p-3 md:flex`}
       >
-        <div>
-          <div className="truncate text-sm font-semibold">{wsName || "Workspace"}</div>
-          <Link className="text-xs text-zinc-500 underline" href={`/workspace/${wsId}`}>
-            ← Workspace
-          </Link>
-        </div>
+        <RoomSwitcher wsId={wsId} name={wsName} headers={headers} />
 
         <div>
           <div className="mb-1 flex items-center justify-between px-2 text-xs uppercase tracking-wide text-zinc-500">
