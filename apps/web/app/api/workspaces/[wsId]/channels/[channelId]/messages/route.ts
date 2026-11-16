@@ -30,15 +30,24 @@ async function load(req: Request, ctx: Ctx) {
 }
 
 function shape(
-  m: { id: string; authorUserId: string | null; content: unknown; createdAt: Date },
+  m: {
+    id: string;
+    authorUserId: string | null;
+    authorAgentId: string | null;
+    fromAgent: string;
+    content: unknown;
+    createdAt: Date;
+  },
   names: Map<string, string>
 ) {
   const text = (m.content as { text?: unknown } | null)?.text;
   return {
     id: m.id,
     authorUserId: m.authorUserId,
-    authorName:
-      (m.authorUserId && names.get(m.authorUserId)) || m.authorUserId || "unknown",
+    authorName: m.authorAgentId
+      ? m.fromAgent
+      : (m.authorUserId && names.get(m.authorUserId)) || m.authorUserId || "unknown",
+    isAgent: !!m.authorAgentId,
     text: typeof text === "string" ? text : "",
     createdAt: m.createdAt.toISOString(),
   };

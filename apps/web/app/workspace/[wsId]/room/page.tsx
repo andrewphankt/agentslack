@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJsonHeaders } from "@/hooks/useActorUserId";
+import { ConnectAgent } from "./ConnectAgent";
 import { RoomSwitcher } from "./RoomSwitcher";
 
 type Channel = { id: string; kind: string; name: string; title: string };
@@ -12,8 +13,18 @@ type Msg = {
   authorUserId: string | null;
   authorName: string;
   text: string;
+  isAgent?: boolean;
   createdAt: string;
 };
+type AgentRow = {
+  id: string;
+  kind: string;
+  label: string;
+  mine: boolean;
+  online: boolean;
+};
+
+const INITIALS: Record<string, string> = { claude: "CL", codex: "CX", gemini: "GM" };
 
 function hhmm(iso: string) {
   const d = new Date(iso);
@@ -45,6 +56,9 @@ export default function RoomPage() {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [agents, setAgents] = useState<AgentRow[]>([]);
+  const [showConnect, setShowConnect] = useState(false);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const currentRef = useRef<Channel | null>(null);
   const messagesRef = useRef<Msg[]>([]);
@@ -81,6 +95,18 @@ export default function RoomPage() {
     return data.channels;
   }, [api]);
 
+  const loadAgents = useCallback(async () => {
+    const res = await api("/agents");
+    if (res.ok) setAgents(((await res.json()) as { agents: AgentRow[] }).agents);
+  }, [api]);
+
+  async function removeAgent(id: string) {
+    if (confirmId !== id) return setConfirmId(id);
+    setConfirmId(null);
+    await api(`/agents/${id}`, { method: "DELETE" });
+    void loadAgents();
+  }
+
   const openChannel = useCallback((c: Channel) => {
     stickRef.current = true;
     setCurrent(c);
@@ -106,6 +132,13 @@ export default function RoomPage() {
       }
     })();
   }, [api, loadChannels, openChannel]);
+
+  // Agents: on mount and every 30s (online dots); realtime refreshes below.
+  useEffect(() => {
+    void loadAgents();
+    const t = setInterval(() => void loadAgents(), 30_000);
+    return () => clearInterval(t);
+  }, [loadAgents]);
 
   // Load messages when channel changes.
   useEffect(() => {
@@ -171,6 +204,8 @@ export default function RoomPage() {
               });
           } else if (ev.type === "chat_channels_changed") {
             void loadChannels();
+          } else if (ev.type === "agents_changed") {
+            void loadAgents();
           }
         };
         ws.onclose = () => {
@@ -189,7 +224,7 @@ export default function RoomPage() {
       if (timer) clearTimeout(timer);
       ws?.close();
     };
-  }, [api, wsId, fetchNew, loadChannels]);
+  }, [api, wsId, fetchNew, loadChannels, loadAgents]);
 
   // Polling fallback when the socket is down.
   useEffect(() => {
@@ -251,6 +286,7 @@ export default function RoomPage() {
         const collapse =
           !!prev &&
           prev.authorUserId === m.authorUserId &&
+          prev.authorName === m.authorName &&
           new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000;
         return { m, collapse };
       }),
@@ -338,7 +374,54 @@ export default function RoomPage() {
               );
             })}
         </div>
+
+        <div>
+          <div className="mb-1 flex items-center justify-between px-2 text-xs uppercase tracking-wide text-zinc-500">
+            <span>Agents</span>
+            <button
+              type="button"
+              className="rounded px-1 text-base leading-none text-zinc-400 hover:bg-zinc-800"
+              onClick={() => setShowConnect(true)}
+              aria-label="Connect an agent"
+            >
+              +
+            </button>
+          </div>
+          {agents.map((a) => (
+            <div
+              key={a.id}
+              className="group flex items-center gap-2 rounded px-2 py-1 text-sm text-zinc-400"
+            >
+              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-zinc-700 text-[10px] font-semibold text-zinc-100">
+                {INITIALS[a.kind] ?? "AG"}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{a.label}</span>
+              {a.online && <span className="h-2 w-2 rounded-full bg-emerald-400" />}
+              {a.mine && (
+                <button
+                  type="button"
+                  className="hidden text-xs text-zinc-500 hover:text-red-400 group-hover:block"
+                  onClick={() => void removeAgent(a.id)}
+                  onBlur={() => setConfirmId(null)}
+                  aria-label="Remove agent"
+                >
+                  {confirmId === a.id ? "Remove?" : "×"}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
       </aside>
+      {showConnect && (
+        <ConnectAgent
+          wsId={wsId}
+          headers={headers}
+          onClose={() => {
+            setShowConnect(false);
+            void loadAgents();
+          }}
+        />
+      )}
 
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
@@ -375,6 +458,7 @@ export default function RoomPage() {
               {!collapse && (
                 <div className="flex items-baseline gap-2">
                   <span className="text-sm font-semibold">{m.authorName}</span>
+                  {m.isAgent && <span className="text-xs text-zinc-500">agent</span>}
                   <span className="text-xs text-zinc-500">{hhmm(m.createdAt)}</span>
                 </div>
               )}

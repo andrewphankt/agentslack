@@ -23,6 +23,7 @@ model Workspace {
   scopedSyncTokens  ScopedSyncToken[]
   activities        WorkspaceActivity[]
   channels          Channel[]
+  agents            Agent[]
 }
 
 model ScopedSyncToken {
@@ -189,6 +190,7 @@ model CollaborationMessage {
   createdAt   DateTime @default(now())
   channelId    String?
   authorUserId String?
+  authorAgentId String?
 
   task    Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
   channel Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
@@ -316,4 +318,20 @@ model AgentUsageLedger {
 
   @@index([userId, createdAt])
   @@index([workspaceId, createdAt])
+}
+
+model Agent {
+  id          String    @id @default(cuid())
+  workspaceId String
+  ownerUserId String
+  kind        String    // claude | codex | gemini | other
+  name        String    // e.g. "Claude"
+  tokenHash   String    @unique   // sha256 hex of the bearer token
+  lastSeenAt  DateTime?
+  lastPullAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
 }
