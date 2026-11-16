@@ -22,6 +22,7 @@ model Workspace {
   agentChatThreads  AgentChatThread[]
   scopedSyncTokens  ScopedSyncToken[]
   activities        WorkspaceActivity[]
+  channels          Channel[]
 }
 
 model ScopedSyncToken {
@@ -186,10 +187,29 @@ model CollaborationMessage {
   toTarget    String
   content     Json
   createdAt   DateTime @default(now())
+  channelId    String?
+  authorUserId String?
 
-  task Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task    Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  channel Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, taskId])
+  @@index([channelId, createdAt])
+}
+
+model Channel {
+  id          String   @id @default(cuid())
+  workspaceId String
+  kind        String   @default("channel") // channel | dm
+  name        String   // channel: slug like "general"; dm: the two userIds sorted and joined with ":"
+  memberIds   String[] @default([])        // dm only: the two userIds
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  messages  CollaborationMessage[]
+
+  @@unique([workspaceId, kind, name])
+  @@index([workspaceId])
 }
 
 model OAuthConnection {

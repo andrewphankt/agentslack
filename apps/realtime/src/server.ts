@@ -1,4 +1,5 @@
 import path from "node:path";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import http from "node:http";
 import { WebSocketServer } from "ws";
@@ -47,6 +48,29 @@ function emitToWorkspace(wsId: string, raw: string) {
     void publisher.publish(workspaceChannel(wsId), raw);
   } else {
     broadcastLocal(wsId, raw);
+  }
+}
+
+/** Verifies a web-issued ticket; returns the userId or null. */
+function verifyTicket(ticket: string, wsId: string): string | null {
+  const [body, sig] = ticket.split(".");
+  if (!body || !sig) return null;
+  const expected = createHmac("sha256", SECRET).update(body).digest("hex");
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  try {
+    const p = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as {
+      w?: string;
+      u?: string;
+      exp?: number;
+    };
+    if (!p.u || p.w !== wsId || typeof p.exp !== "number" || p.exp < Date.now()) {
+      return null;
+    }
+    return p.u;
+  } catch {
+    return null;
   }
 }
 
@@ -108,15 +132,23 @@ server.on("upgrade", (req, socket, head) => {
   }
   const wsId = url.searchParams.get("workspaceId");
   const token = url.searchParams.get("token");
-  if (!wsId || !token) {
+  const ticket = url.searchParams.get("ticket");
+  if (!wsId || (!token && !ticket)) {
     socket.destroy();
     return;
   }
 
   wss.handleUpgrade(req, socket, head, async (ws) => {
-    const member = await prisma.workspaceMember.findFirst({
-      where: { workspaceId: wsId, contextToken: token },
-    });
+    const ticketUserId = ticket ? verifyTicket(ticket, wsId) : null;
+    const member = ticket
+      ? ticketUserId
+        ? await prisma.workspaceMember.findFirst({
+            where: { workspaceId: wsId, userId: ticketUserId },
+          })
+        : null
+      : await prisma.workspaceMember.findFirst({
+          where: { workspaceId: wsId, contextToken: token! },
+        });
     if (!member) {
       ws.close(4403, "forbidden");
       return;
@@ -128,6 +160,8 @@ server.on("upgrade", (req, socket, head) => {
     ws.send(JSON.stringify({ type: "connected", workspaceId: wsId }));
 
     ws.on("message", (data) => {
+      // Ticket (browser) clients are receive-only.
+      if (ticket) return;
       const raw =
         typeof data === "string"
           ? data

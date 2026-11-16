@@ -246,6 +246,12 @@ function WorkspaceHomePageContent() {
           </div>
           <div className="flex flex-wrap gap-2">
             <Link
+              className="text-sm text-emerald-400 underline"
+              href={`/workspace/${wsId}/room`}
+            >
+              Open room
+            </Link>
+            <Link
               className="text-sm text-violet-400 underline"
               href="/settings/advanced/docs#collab-mainline"
             >
