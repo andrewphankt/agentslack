@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJsonHeaders } from "@/hooks/useActorUserId";
 import { AgentNote } from "./AgentNote";
@@ -18,6 +18,7 @@ type Msg = {
   authorAvatarUrl?: string | null;
   text: string;
   isAgent?: boolean;
+  type?: string;
   createdAt: string;
 };
 type AgentRow = {
@@ -43,6 +44,9 @@ export default function RoomPage() {
   const params = useParams();
   const wsId = params.wsId as string;
   const headers = useJsonHeaders();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const welcomeRef = useRef(searchParams.get("welcome") === "1");
 
   const [wsName, setWsName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
@@ -61,9 +65,14 @@ export default function RoomPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [agents, setAgents] = useState<AgentRow[]>([]);
   const [showConnect, setShowConnect] = useState(false);
+  const [firstConnect, setFirstConnect] = useState(false);
+  const [prdArrived, setPrdArrived] = useState(false);
+  const welcomeDone = useRef(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const currentRef = useRef<Channel | null>(null);
+  const channelsRef = useRef<Channel[]>([]);
+  channelsRef.current = channels;
   const messagesRef = useRef<Msg[]>([]);
   const headersRef = useRef(headers);
   const listRef = useRef<HTMLDivElement>(null);
@@ -144,8 +153,14 @@ export default function RoomPage() {
       }
       const list = await loadChannels();
       if (list) {
-        const g = list.find((c) => c.kind === "channel" && c.name === "general") ?? list[0];
+        const prd = welcomeRef.current ? list.find((c) => c.kind === "channel" && c.name === "prd") : undefined;
+        const g = prd ?? list.find((c) => c.kind === "channel" && c.name === "general") ?? list[0];
         if (g) openChannel(g);
+        if (welcomeRef.current && !welcomeDone.current) {
+          welcomeDone.current = true;
+          setFirstConnect(true);
+          setShowConnect(true);
+        }
       }
     })();
   }, [api, loadChannels, openChannel]);
@@ -212,6 +227,10 @@ export default function RoomPage() {
             return;
           }
           if (ev.type === "chat_message" && ev.channelId) {
+            const prdId = channelsRef.current.find(
+              (c) => c.kind === "channel" && c.name === "prd"
+            )?.id;
+            if (ev.channelId === prdId) setPrdArrived(true);
             if (ev.channelId === currentRef.current?.id) void fetchNew();
             else
               setUnread((u) => {
@@ -450,8 +469,14 @@ export default function RoomPage() {
         <ConnectAgent
           wsId={wsId}
           headers={headers}
+          mode={firstConnect ? "first" : "default"}
+          connected={prdArrived}
           onClose={() => {
             setShowConnect(false);
+            if (firstConnect) {
+              setFirstConnect(false);
+              router.replace(`/workspace/${wsId}/room`);
+            }
             void loadAgents();
           }}
         />
@@ -513,7 +538,11 @@ export default function RoomPage() {
           className="flex-1 overflow-y-auto px-4 py-3"
         >
           {messages.length === 0 && (
-            <p className="text-sm text-zinc-500">No messages yet.</p>
+            <p className="text-sm text-zinc-500">
+              {current?.kind === "channel" && current.name === "prd"
+                ? "No PRD yet. Connect an agent and it will write one, or type what you are building."
+                : "No messages yet."}
+            </p>
           )}
           {grouped.map(({ m, collapse }) => (
             <div key={m.id} className={`flex gap-3 ${collapse ? "mt-0.5" : "mt-3"}`}>
@@ -536,10 +565,10 @@ export default function RoomPage() {
                     <span className="text-xs text-zinc-400">{hhmm(m.createdAt)}</span>
                   </div>
                 )}
-                {m.isAgent ? (
+                {m.isAgent && (m.type === undefined || m.type === "note") ? (
                   <AgentNote text={m.text} />
                 ) : (
-                  <div className="whitespace-pre-wrap break-words text-sm text-zinc-800">
+                  <div className="max-w-[72ch] whitespace-pre-wrap break-words text-sm text-zinc-800">
                     {m.text}
                   </div>
                 )}

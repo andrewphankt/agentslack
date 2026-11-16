@@ -19,10 +19,6 @@ export function RoomSwitcher({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [adding, setAdding] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -47,26 +43,6 @@ export function RoomSwitcher({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
-
-  async function create() {
-    const n = newName.trim();
-    if (!n || busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      const r = await fetch("/api/workspaces", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ name: n }),
-      });
-      if (!r.ok) throw new Error();
-      const j = (await r.json()) as { workspaceId: string };
-      router.push(`/workspace/${j.workspaceId}/room`);
-    } catch {
-      setError("Could not create the room.");
-      setBusy(false);
-    }
-  }
 
   const title = name || "Room";
   const tile = (label: string) => (
@@ -114,35 +90,17 @@ export function RoomSwitcher({
 
           <div className="my-1 border-t border-zinc-800" />
 
-          {adding ? (
-            <div className="p-1">
-              <input
-                autoFocus
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void create();
-                }}
-                placeholder="Room name"
-                maxLength={60}
-                disabled={busy}
-                className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm outline-none focus:border-zinc-500"
-              />
-              {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
-            </div>
-          ) : (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => setAdding(true)}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-zinc-200 hover:bg-zinc-800"
-            >
-              <span className="grid h-7 w-7 place-items-center rounded-md border border-dashed border-zinc-600 text-zinc-400">
-                +
-              </span>
-              New room
-            </button>
-          )}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => router.push("/start")}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-zinc-200 hover:bg-zinc-800"
+          >
+            <span className="grid h-7 w-7 place-items-center rounded-md border border-dashed border-zinc-600 text-zinc-400">
+              +
+            </span>
+            New room
+          </button>
           <Link
             role="menuitem"
             href={`/workspace/${wsId}`}

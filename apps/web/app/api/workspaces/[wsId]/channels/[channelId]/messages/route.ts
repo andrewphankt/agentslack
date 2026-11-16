@@ -35,6 +35,7 @@ function shape(
     authorUserId: string | null;
     authorAgentId: string | null;
     fromAgent: string;
+    type: string;
     content: unknown;
     createdAt: Date;
   },
@@ -51,6 +52,7 @@ function shape(
     authorAvatarUrl:
       !m.authorAgentId && m.authorUserId ? avatars.get(m.authorUserId) ?? null : null,
     isAgent: !!m.authorAgentId,
+    type: m.type,
     text: typeof text === "string" ? text : "",
     createdAt: m.createdAt.toISOString(),
   };

@@ -5,6 +5,7 @@ import Link from "next/link";
 
 export function AppNav() {
   const pathname = usePathname();
+  if (pathname === "/" || pathname === "/start" || pathname?.startsWith("/join/")) return null;
   if (/^\/workspace\/[^/]+\/room/.test(pathname ?? "")) return null;
   return (
     <nav className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur">

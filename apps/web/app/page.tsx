@@ -1,54 +1,58 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { prisma } from "@/lib/prisma";
+import { hashSessionToken, SESSION_COOKIE_NAME } from "@/lib/sessionIssue";
+import { AmbientBackground } from "@/components/AmbientBackground";
 
-export default function HomePage() {
+export const dynamic = "force-dynamic";
+
+async function signedInUserId(): Promise<string | null> {
+  const raw = cookies().get(SESSION_COOKIE_NAME)?.value;
+  if (!raw) return null;
+  const row = await prisma.session.findUnique({
+    where: { tokenHash: hashSessionToken(raw) },
+    select: { userId: true, expiresAt: true },
+  });
+  return row && row.expiresAt > new Date() ? row.userId : null;
+}
+
+export default async function HomePage() {
+  const userId = await signedInUserId();
+  if (userId) {
+    const latest = await prisma.workspaceMember.findFirst({
+      where: { userId },
+      orderBy: { joinedAt: "desc" },
+      select: { workspaceId: true },
+    });
+    redirect(latest ? `/workspace/${latest.workspaceId}/room` : "/start");
+  }
+
   return (
-    <main className="mx-auto flex max-w-5xl flex-col gap-6 p-10">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">AgentMesh</h1>
-        <p className="mt-2 text-zinc-400">
-          Main flow:{" "}
-          <strong className="font-medium text-zinc-300">
-            Log in → Create a workspace → Authorize GitHub → Pick a repo
-          </strong>
-          . Code is imported into the workspace and indexed automatically. CLI / MCP / tokens are
-          in the{" "}
-          <Link className="text-blue-400 underline underline-offset-4" href="/settings/advanced/docs">
-            developer docs
+    <AmbientBackground>
+      <main className="flex max-w-2xl flex-col items-center text-center">
+        <p className="text-sm tracking-wide text-zinc-400">AgentSlack</p>
+        <h1 className="mt-4 text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
+          Build one project together without stepping on each other.
+        </h1>
+        <a
+          href={`/api/auth/github/signin/start?return_to=${encodeURIComponent("/start")}`}
+          className="mt-10 inline-flex h-14 items-center gap-3 rounded-xl bg-white px-8 text-base font-medium text-zinc-900 shadow-lg transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+        >
+          <svg viewBox="0 0 16 16" className="h-6 w-6" fill="currentColor" aria-hidden>
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+          </svg>
+          Continue with GitHub
+        </a>
+        {process.env.NODE_ENV !== "production" && (
+          <Link
+            href="/login?next=/start"
+            className="mt-6 text-xs text-zinc-500 underline-offset-4 hover:text-zinc-300 hover:underline"
+          >
+            Use the demo account
           </Link>
-          .
-        </p>
-      </div>
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 text-sm">
-        <p className="mb-3 text-xs font-medium uppercase text-zinc-500">Self-host (this repo)</p>
-        <ol className="list-decimal space-y-2 pl-5 text-zinc-300">
-          <li>
-            Copy <code className="rounded bg-zinc-800 px-1">env.example</code> to{" "}
-            <code className="rounded bg-zinc-800 px-1">.env</code>; set the database and optional{" "}
-            <code className="rounded bg-zinc-800 px-1">OPENAI_API_KEY</code>
-          </li>
-          <li>
-            <code className="rounded bg-zinc-800 px-1">
-              npm install && npx prisma migrate deploy && npm run db:seed
-            </code>
-          </li>
-          <li>
-            <code className="rounded bg-zinc-800 px-1">npm run dev</code>
-          </li>
-          <li>
-            Open{" "}
-            <Link className="text-blue-400 underline" href="/login">
-              Log in / Register
-            </Link>
-            , create a workspace from the Dashboard, and follow the flow to connect GitHub.
-          </li>
-        </ol>
-      </div>
-      <Link
-        className="text-blue-400 underline underline-offset-4"
-        href="/login"
-      >
-        Log in / Register →
-      </Link>
-    </main>
+        )}
+      </main>
+    </AmbientBackground>
   );
 }

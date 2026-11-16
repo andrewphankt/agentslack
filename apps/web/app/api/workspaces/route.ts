@@ -1,15 +1,7 @@
 import { NextResponse } from "next/server";
-import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { actorUserIdFromRequest } from "@/lib/auth";
-import { broadcastWorkspaceEvent } from "@/lib/realtime/broadcast";
-
-function tok() {
-  return randomBytes(24).toString("hex");
-}
-function invite() {
-  return randomBytes(5).toString("hex");
-}
+import { createWorkspaceWithOwner } from "@/lib/workspaces/create";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -38,33 +30,7 @@ export async function POST(req: Request) {
       ? body.name.trim()
       : "Untitled Workspace";
 
-  const ws = await prisma.workspace.create({
-    data: {
-      name,
-      inviteCode: invite(),
-    },
-  });
-
-  await prisma.workspaceMember.create({
-    data: {
-      workspaceId: ws.id,
-      userId: creatorUserId,
-      displayName: creatorUserId,
-      role: "owner",
-      contextToken: tok(),
-      agentConfig: {
-        agent_id: `${creatorUserId}-agent`,
-        name: `${creatorUserId}'s Agent`,
-        type: "custom",
-        capabilities: [],
-      },
-    },
-  });
-
-  await broadcastWorkspaceEvent(ws.id, {
-    type: "member_joined",
-    payload: { user_id: creatorUserId, workspace_id: ws.id },
-  });
+  const ws = await createWorkspaceWithOwner(creatorUserId, name);
 
   return NextResponse.json({
     workspaceId: ws.id,

@@ -43,6 +43,16 @@ const TOOLS = [
       required: ["changed"],
     },
   },
+  {
+    name: "write_prd",
+    description:
+      "Post a short product summary (1–2 paragraphs, plain language: what this project is, who it is for, what exists so far) to the room's #prd channel.",
+    inputSchema: {
+      type: "object",
+      properties: { text: { type: "string", description: "The summary, 1–2 short paragraphs" } },
+      required: ["text"],
+    },
+  },
 ];
 
 const text = (t: string, isError = false): ToolResult => ({
@@ -178,12 +188,46 @@ async function postNote(agent: Agent, args: Record<string, unknown>): Promise<To
   return text("Noted.");
 }
 
+async function writePrd(agent: Agent, args: Record<string, unknown>): Promise<ToolResult> {
+  const body = typeof args.text === "string" ? args.text.trim() : "";
+  if (!body) return text("text is required", true);
+  if (body.length > 3000) return text("text must be 3000 characters or fewer", true);
+  const names = await displayNames(agent.workspaceId);
+  const channel = await prisma.channel.upsert({
+    where: {
+      workspaceId_kind_name: { workspaceId: agent.workspaceId, kind: "channel", name: "prd" },
+    },
+    update: {},
+    create: { workspaceId: agent.workspaceId, kind: "channel", name: "prd" },
+  });
+  const row = await prisma.collaborationMessage.create({
+    data: {
+      workspaceId: agent.workspaceId,
+      channelId: channel.id,
+      authorAgentId: agent.id,
+      authorUserId: null,
+      type: "prd",
+      fromAgent: agentLabel(agent, names),
+      toTarget: "#prd",
+      content: { text: body },
+      messageId: randomUUID(),
+    },
+  });
+  await broadcastWorkspaceEvent(agent.workspaceId, {
+    type: "chat_message",
+    channelId: channel.id,
+    messageId: row.id,
+  });
+  return text("Posted to #prd.");
+}
+
 async function callTool(agent: Agent, params: Record<string, unknown>): Promise<ToolResult> {
   const args = (params.arguments ?? {}) as Record<string, unknown>;
   try {
     if (params.name === "search_code") return await searchCode(agent, args);
     if (params.name === "room_update") return await roomUpdate(agent);
     if (params.name === "post_note") return await postNote(agent, args);
+    if (params.name === "write_prd") return await writePrd(agent, args);
     return text(`Unknown tool: ${String(params.name)}`, true);
   } catch {
     return text("Tool failed.", true);

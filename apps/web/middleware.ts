@@ -23,5 +23,6 @@ export const config = {
     "/device",
     "/device/:path*",
     "/join/:path*",
+    "/start",
   ],
 };
