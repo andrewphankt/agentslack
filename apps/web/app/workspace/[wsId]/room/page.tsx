@@ -3,15 +3,19 @@
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJsonHeaders } from "@/hooks/useActorUserId";
+import { AgentNote } from "./AgentNote";
+import { Avatar, agentCode } from "./Avatar";
 import { ConnectAgent } from "./ConnectAgent";
+import { Invite } from "./Invite";
 import { RoomSwitcher } from "./RoomSwitcher";
 
 type Channel = { id: string; kind: string; name: string; title: string };
-type Member = { userId: string; name: string; role: string };
+type Member = { userId: string; name: string; role: string; avatarUrl?: string | null };
 type Msg = {
   id: string;
   authorUserId: string | null;
   authorName: string;
+  authorAvatarUrl?: string | null;
   text: string;
   isAgent?: boolean;
   createdAt: string;
@@ -23,8 +27,6 @@ type AgentRow = {
   mine: boolean;
   online: boolean;
 };
-
-const INITIALS: Record<string, string> = { claude: "CL", codex: "CX", gemini: "GM" };
 
 function hhmm(iso: string) {
   const d = new Date(iso);
@@ -43,6 +45,7 @@ export default function RoomPage() {
   const headers = useJsonHeaders();
 
   const [wsName, setWsName] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [me, setMe] = useState("");
   const [members, setMembers] = useState<Member[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -120,11 +123,25 @@ export default function RoomPage() {
     });
   }, []);
 
+  // Escape closes the mobile sidebar.
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSidebarOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [sidebarOpen]);
+
   // Mount: workspace name + channels, select #general.
   useEffect(() => {
     void (async () => {
       const w = await api("");
-      if (w.ok) setWsName(((await w.json()) as { name: string }).name);
+      if (w.ok) {
+        const wj = (await w.json()) as { name: string; inviteCode?: string };
+        setWsName(wj.name);
+        setInviteCode(wj.inviteCode ?? "");
+      }
       const list = await loadChannels();
       if (list) {
         const g = list.find((c) => c.kind === "channel" && c.name === "general") ?? list[0];
@@ -285,12 +302,19 @@ export default function RoomPage() {
         const prev = messages[i - 1];
         const collapse =
           !!prev &&
+          !m.isAgent &&
+          !prev.isAgent &&
           prev.authorUserId === m.authorUserId &&
           prev.authorName === m.authorName &&
           new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000;
         return { m, collapse };
       }),
     [messages]
+  );
+
+  const agentKindByLabel = useMemo(
+    () => new Map(agents.map((a) => [a.label, a.kind])),
+    [agents]
   );
 
   const dmByUser = useMemo(() => {
@@ -300,23 +324,35 @@ export default function RoomPage() {
   }, [channels]);
 
   const row = (active: boolean) =>
-    `flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm ${
+    `flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
       active ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:bg-zinc-900"
     }`;
+  const heading = "text-[11px] uppercase tracking-wide text-zinc-500";
+  const plus =
+    "rounded px-1 text-base leading-none text-zinc-400 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500";
+  const unreadDot = <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />;
+  const shownMembers = members.slice(0, 5);
 
   return (
-    <div className="fixed inset-x-0 bottom-0 top-[45px] flex bg-zinc-950 text-zinc-100">
+    <div className="fixed inset-0 flex bg-zinc-950 text-zinc-100">
+      {sidebarOpen && (
+        <div
+          aria-hidden
+          className="absolute inset-0 z-20 bg-black/50 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
       <aside
-        className={`${sidebarOpen ? "flex" : "hidden"} w-60 shrink-0 flex-col gap-4 overflow-y-auto border-r border-zinc-800 bg-zinc-950 p-3 md:flex`}
+        className={`${sidebarOpen ? "absolute inset-y-0 left-0 z-20 flex" : "hidden"} w-60 shrink-0 flex-col gap-4 overflow-y-auto border-r border-zinc-800 bg-zinc-950 p-3 md:static md:z-auto md:flex`}
       >
         <RoomSwitcher wsId={wsId} name={wsName} headers={headers} />
 
         <div>
-          <div className="mb-1 flex items-center justify-between px-2 text-xs uppercase tracking-wide text-zinc-500">
+          <div className={`mb-1 flex items-center justify-between px-2 ${heading}`}>
             <span>Channels</span>
             <button
               type="button"
-              className="rounded px-1 text-base leading-none text-zinc-400 hover:bg-zinc-800"
+              className={plus}
               onClick={() => setShowNew((v) => !v)}
               aria-label="New channel"
             >
@@ -333,7 +369,8 @@ export default function RoomPage() {
                 if (e.key === "Escape") setShowNew(false);
               }}
               placeholder="channel-name"
-              className="mb-1 w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm outline-none focus:border-violet-500"
+              aria-label="New channel name"
+              className="mb-1 w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm outline-none focus:border-blue-500"
             />
           )}
           {channels
@@ -346,15 +383,13 @@ export default function RoomPage() {
                 onClick={() => openChannel(c)}
               >
                 <span className="truncate"># {c.name}</span>
-                {unread.has(c.id) && <span className="h-2 w-2 rounded-full bg-violet-400" />}
+                {unread.has(c.id) && unreadDot}
               </button>
             ))}
         </div>
 
         <div>
-          <div className="mb-1 px-2 text-xs uppercase tracking-wide text-zinc-500">
-            Direct messages
-          </div>
+          <div className={`mb-1 px-2 ${heading}`}>People</div>
           {members
             .filter((m) => m.userId !== me)
             .map((m) => {
@@ -366,21 +401,22 @@ export default function RoomPage() {
                   className={row(!!dm && current?.id === dm.id)}
                   onClick={() => void openDm(m.userId)}
                 >
-                  <span className="truncate">{m.name}</span>
-                  {dm && unread.has(dm.id) && (
-                    <span className="h-2 w-2 rounded-full bg-violet-400" />
-                  )}
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Avatar name={m.name} avatarUrl={m.avatarUrl} size={20} />
+                    <span className="truncate">{m.name}</span>
+                  </span>
+                  {dm && unread.has(dm.id) && unreadDot}
                 </button>
               );
             })}
         </div>
 
         <div>
-          <div className="mb-1 flex items-center justify-between px-2 text-xs uppercase tracking-wide text-zinc-500">
+          <div className={`mb-1 flex items-center justify-between px-2 ${heading}`}>
             <span>Agents</span>
             <button
               type="button"
-              className="rounded px-1 text-base leading-none text-zinc-400 hover:bg-zinc-800"
+              className={plus}
               onClick={() => setShowConnect(true)}
               aria-label="Connect an agent"
             >
@@ -392,15 +428,13 @@ export default function RoomPage() {
               key={a.id}
               className="group flex items-center gap-2 rounded px-2 py-1 text-sm text-zinc-400"
             >
-              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-zinc-700 text-[10px] font-semibold text-zinc-100">
-                {INITIALS[a.kind] ?? "AG"}
-              </span>
+              <Avatar agent name={a.label} code={agentCode(a.kind)} size={20} />
               <span className="min-w-0 flex-1 truncate">{a.label}</span>
               {a.online && <span className="h-2 w-2 rounded-full bg-emerald-400" />}
               {a.mine && (
                 <button
                   type="button"
-                  className="hidden text-xs text-zinc-500 hover:text-red-400 group-hover:block"
+                  className="hidden text-xs text-zinc-500 hover:text-red-400 focus-visible:block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 group-hover:block"
                   onClick={() => void removeAgent(a.id)}
                   onBlur={() => setConfirmId(null)}
                   aria-label="Remove agent"
@@ -423,23 +457,51 @@ export default function RoomPage() {
         />
       )}
 
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-          <div className="flex items-center gap-3">
+      <main
+        className="flex min-w-0 flex-1 flex-col bg-white text-zinc-900"
+        style={{ colorScheme: "light" }}
+      >
+        <header className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
-              className="rounded border border-zinc-700 px-2 py-0.5 text-sm text-zinc-300 md:hidden"
+              aria-label="Open menu"
+              aria-expanded={sidebarOpen}
+              className="-ml-1 rounded p-1 text-zinc-600 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 md:hidden"
               onClick={() => setSidebarOpen((v) => !v)}
             >
-              Menu
+              <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+                <path d="M3 5h14M3 10h14M3 15h14" />
+              </svg>
             </button>
-            <h1 className="text-sm font-semibold">
+            <h1 className="truncate text-sm font-semibold">
               {current ? (current.kind === "dm" ? current.title : `# ${current.name}`) : ""}
             </h1>
           </div>
-          <span className={`text-xs ${live ? "text-emerald-400" : "text-amber-400"}`}>
-            {live ? "Live" : "Reconnecting…"}
-          </span>
+          <div className="flex shrink-0 items-center gap-3">
+            <div className="flex items-center pl-1.5">
+              {shownMembers.map((m) => (
+                <span key={m.userId} title={m.name} className="-ml-1.5 inline-flex rounded-full ring-2 ring-white">
+                  <Avatar name={m.name} avatarUrl={m.avatarUrl} size={24} />
+                </span>
+              ))}
+              {members.length > 5 && (
+                <span
+                  title={members.slice(5).map((m) => m.name).join(", ")}
+                  className="-ml-1.5 grid h-6 min-w-6 place-items-center rounded-full bg-zinc-200 px-1 text-[11px] font-medium text-zinc-700 ring-2 ring-white"
+                >
+                  +{members.length - 5}
+                </span>
+              )}
+            </div>
+            <Invite inviteCode={inviteCode} />
+            <span
+              role="img"
+              title={live ? "Live" : "Reconnecting"}
+              aria-label={live ? "Live" : "Reconnecting"}
+              className={`h-2 w-2 rounded-full ${live ? "bg-emerald-500" : "bg-amber-500"}`}
+            />
+          </div>
         </header>
 
         <div
@@ -454,23 +516,40 @@ export default function RoomPage() {
             <p className="text-sm text-zinc-500">No messages yet.</p>
           )}
           {grouped.map(({ m, collapse }) => (
-            <div key={m.id} className={collapse ? "mt-0.5" : "mt-3"}>
-              {!collapse && (
-                <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-semibold">{m.authorName}</span>
-                  {m.isAgent && <span className="text-xs text-zinc-500">agent</span>}
-                  <span className="text-xs text-zinc-500">{hhmm(m.createdAt)}</span>
-                </div>
-              )}
-              <div className="whitespace-pre-wrap break-words text-sm text-zinc-300">
-                {m.text}
+            <div key={m.id} className={`flex gap-3 ${collapse ? "mt-0.5" : "mt-3"}`}>
+              <div className="w-8 shrink-0">
+                {!collapse && (
+                  <Avatar
+                    name={m.authorName}
+                    avatarUrl={m.authorAvatarUrl}
+                    agent={m.isAgent}
+                    code={m.isAgent ? agentCode(agentKindByLabel.get(m.authorName)) : undefined}
+                    size={32}
+                  />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                {!collapse && (
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-sm font-semibold text-zinc-900">{m.authorName}</span>
+                    {m.isAgent && <span className="text-xs text-zinc-500">agent</span>}
+                    <span className="text-xs text-zinc-400">{hhmm(m.createdAt)}</span>
+                  </div>
+                )}
+                {m.isAgent ? (
+                  <AgentNote text={m.text} />
+                ) : (
+                  <div className="whitespace-pre-wrap break-words text-sm text-zinc-800">
+                    {m.text}
+                  </div>
+                )}
               </div>
             </div>
           ))}
         </div>
 
-        {err && <div className="px-4 pb-1 text-xs text-red-400">{err}</div>}
-        <div className="border-t border-zinc-800 p-3">
+        {err && <div className="px-4 pb-1 text-xs text-red-600">{err}</div>}
+        <div className="border-t border-zinc-200 p-3">
           <textarea
             value={text}
             disabled={sending || !current}
@@ -482,8 +561,9 @@ export default function RoomPage() {
               }
             }}
             rows={2}
+            aria-label="Message"
             placeholder={current ? `Message ${current.kind === "dm" ? current.title : "#" + current.name}` : ""}
-            className="w-full resize-none rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-violet-500 disabled:opacity-60"
+            className="w-full resize-none rounded border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-zinc-500 disabled:opacity-60"
           />
         </div>
       </main>

@@ -42,3 +42,11 @@ export async function displayNames(wsId: string): Promise<Map<string, string>> {
 export function errStatus(e: unknown): number {
   return (e as { status?: number }).status ?? 500;
 }
+
+export async function avatarUrls(userIds: string[]): Promise<Map<string, string | null>> {
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, avatarUrl: true },
+  });
+  return new Map(users.map((u) => [u.id, u.avatarUrl]));
+}

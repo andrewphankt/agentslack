@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { actorUserIdFromWorkspaceAuth } from "@/lib/auth";
 import { broadcastWorkspaceEvent } from "@/lib/realtime/broadcast";
-import { canSee, displayNames, errStatus } from "@/lib/chat";
+import { avatarUrls, canSee, displayNames, errStatus } from "@/lib/chat";
 
 type Ctx = { params: { wsId: string; channelId: string } };
 
@@ -38,7 +38,8 @@ function shape(
     content: unknown;
     createdAt: Date;
   },
-  names: Map<string, string>
+  names: Map<string, string>,
+  avatars: Map<string, string | null>
 ) {
   const text = (m.content as { text?: unknown } | null)?.text;
   return {
@@ -47,6 +48,8 @@ function shape(
     authorName: m.authorAgentId
       ? m.fromAgent
       : (m.authorUserId && names.get(m.authorUserId)) || m.authorUserId || "unknown",
+    authorAvatarUrl:
+      !m.authorAgentId && m.authorUserId ? avatars.get(m.authorUserId) ?? null : null,
     isAgent: !!m.authorAgentId,
     text: typeof text === "string" ? text : "",
     createdAt: m.createdAt.toISOString(),
@@ -76,7 +79,8 @@ export async function GET(req: Request, ctx: Ctx) {
           take: 100,
         })
       ).reverse();
-  return NextResponse.json({ messages: rows.map((m) => shape(m, names)) });
+  const avatars = await avatarUrls(rows.flatMap((m) => (m.authorUserId ? [m.authorUserId] : [])));
+  return NextResponse.json({ messages: rows.map((m) => shape(m, names, avatars)) });
 }
 
 export async function POST(req: Request, ctx: Ctx) {
@@ -110,5 +114,6 @@ export async function POST(req: Request, ctx: Ctx) {
     messageId: row.id,
   });
   const names = await displayNames(ctx.params.wsId);
-  return NextResponse.json({ message: shape(row, names) });
+  const avatars = await avatarUrls([userId]);
+  return NextResponse.json({ message: shape(row, names, avatars) });
 }

@@ -17,6 +17,7 @@ async function githubUser(accessToken: string): Promise<{
   login: string;
   id: number;
   email: string | null;
+  avatarUrl: string | null;
 }> {
   const res = await fetch("https://api.github.com/user", {
     headers: {
@@ -33,6 +34,7 @@ async function githubUser(accessToken: string): Promise<{
     login?: string;
     id?: number;
     email?: string | null;
+    avatar_url?: string | null;
   };
   const login = typeof j.login === "string" ? j.login : null;
   if (!login || typeof j.id !== "number") {
@@ -60,7 +62,8 @@ async function githubUser(accessToken: string): Promise<{
       email = primary ?? null;
     }
   }
-  return { login, id: j.id, email };
+  const avatarUrl = typeof j.avatar_url === "string" ? j.avatar_url : null;
+  return { login, id: j.id, email, avatarUrl };
 }
 
 /** GitHub «Sign in» flow (session + user bootstrap). */
@@ -135,12 +138,16 @@ export async function handleGithubSignInCallback(
 
   if (byEmail) {
     resolvedUserId = byEmail.id;
+    if (gh.avatarUrl)
+      await prisma.user.update({ where: { id: byEmail.id }, data: { avatarUrl: gh.avatarUrl } });
   } else {
     const existingGhId = await prisma.user.findUnique({
       where: { id: userId },
     });
     if (existingGhId) {
       resolvedUserId = existingGhId.id;
+      if (gh.avatarUrl)
+        await prisma.user.update({ where: { id: existingGhId.id }, data: { avatarUrl: gh.avatarUrl } });
     } else {
       let candidate = userId;
       let n = 0;
@@ -157,6 +164,7 @@ export async function handleGithubSignInCallback(
           id: candidate,
           email: emailNorm,
           displayName: gh.login,
+          avatarUrl: gh.avatarUrl,
           passwordHash: null,
         },
       });

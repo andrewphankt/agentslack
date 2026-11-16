@@ -1,6 +1,11 @@
+"use client";
+
+import { usePathname } from "next/navigation";
 import Link from "next/link";
 
 export function AppNav() {
+  const pathname = usePathname();
+  if (/^\/workspace\/[^/]+\/room/.test(pathname ?? "")) return null;
   return (
     <nav className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur">
       <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 px-6 py-3 text-sm">

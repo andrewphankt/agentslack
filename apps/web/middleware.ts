@@ -22,5 +22,6 @@ export const config = {
     "/workspace/:path*",
     "/device",
     "/device/:path*",
+    "/join/:path*",
   ],
 };

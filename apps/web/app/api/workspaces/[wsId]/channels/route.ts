@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { actorUserIdFromWorkspaceAuth } from "@/lib/auth";
 import { broadcastWorkspaceEvent } from "@/lib/realtime/broadcast";
-import { displayNames, ensureGeneral, errStatus } from "@/lib/chat";
+import { avatarUrls, displayNames, ensureGeneral, errStatus } from "@/lib/chat";
 
 type Ch = { id: string; kind: string; name: string; memberIds: string[] };
 
@@ -39,9 +39,11 @@ export async function GET(req: Request, ctx: { params: { wsId: string } }) {
       select: { userId: true, role: true },
     }),
   ]);
+  const avatars = await avatarUrls(members.map((m) => m.userId));
   return NextResponse.json({
     me,
     members: members.map((m) => ({
+      avatarUrl: avatars.get(m.userId) ?? null,
       userId: m.userId,
       name: names.get(m.userId) ?? m.userId,
       role: m.role,
