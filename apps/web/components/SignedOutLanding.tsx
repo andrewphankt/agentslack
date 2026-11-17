@@ -1,21 +1,23 @@
-import { GitHubIcon, MeshPage, meshSolid } from "@/components/MeshPage";
+import { GitHubIcon, MeshPage, STEPS_JOIN, Wordmark, meshBig, meshTitle } from "@/components/MeshPage";
 
-/** The signed-out front page: the name, one sentence, one GitHub button. */
-export function SignedOutLanding({ next = "/" }: { next?: string }) {
+/** The signed-out front page: one line and one GitHub button. An invite link names the room instead. */
+export function SignedOutLanding({ next = "/", invitedTo }: { next?: string; invitedTo?: string }) {
   return (
-    <MeshPage>
-      <h1 className="text-[22px] font-bold leading-tight tracking-tight">Build one project together.</h1>
-      <p className="mt-2 text-sm text-zinc-600">
-        One room for your team and your agents. Everyone keeps working in their own terminal.
-      </p>
-      <a
-        href={`/api/auth/github/signin/start?return_to=${encodeURIComponent(next)}`}
-        className={`${meshSolid} mt-6 h-11 w-full`}
-      >
+    <MeshPage step={1} labels={invitedTo ? STEPS_JOIN : undefined}>
+      <div className="flex flex-col items-center gap-4">
+        <Wordmark className="text-sm" />
+        {invitedTo ? (
+          <h1 className={meshTitle}>
+            You have been invited to <span className="whitespace-nowrap">{invitedTo}</span>
+          </h1>
+        ) : (
+          <h1 className={meshTitle}>Build one project together</h1>
+        )}
+      </div>
+      <a href={`/api/auth/github/signin/start?return_to=${encodeURIComponent(next)}`} className={meshBig}>
         <GitHubIcon white />
         Continue with GitHub
       </a>
-      <p className="mt-3 text-xs text-zinc-500">Your project lives on GitHub. Mesh works with the one you pick.</p>
     </MeshPage>
   );
 }

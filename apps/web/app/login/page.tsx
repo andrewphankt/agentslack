@@ -41,6 +41,7 @@ function LoginForm() {
 
   return (
     <MeshPage>
+      <div className="w-full">
       <h1 className="text-[22px] font-bold leading-tight tracking-tight">Sign in</h1>
       <p className="mt-2 text-sm text-zinc-600">Use the GitHub account your project is on.</p>
 
@@ -102,6 +103,7 @@ function LoginForm() {
           Use a Password Instead
         </button>
       )}
+      </div>
     </MeshPage>
   );
 }

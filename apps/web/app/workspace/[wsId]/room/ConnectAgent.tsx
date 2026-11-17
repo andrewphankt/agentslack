@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Steps } from "@/components/MeshPage";
 import { LOGO } from "./logos";
 
 const KINDS = [
@@ -71,31 +72,6 @@ function Tick({ size, className = "" }: { size: number; className?: string }) {
   );
 }
 
-function Steps({ at }: { at: number }) {
-  return (
-    <ol className="flex items-center gap-3.5 text-sm font-semibold">
-      {["Sign in", "Project", "Agent"].map((label, i) => {
-        const n = i + 1;
-        return (
-          <li key={label} className="flex items-center gap-3.5">
-            {i > 0 && <span aria-hidden className="h-px w-8 bg-zinc-200" />}
-            <span className={`flex items-center gap-2 ${n <= at ? "text-zinc-900" : "text-zinc-500"}`}>
-              <span
-                className={`grid h-6 w-6 place-items-center rounded-full text-xs ${
-                  n <= at ? "bg-zinc-900 text-white" : "border border-zinc-200"
-                }`}
-              >
-                {n < at ? <Tick size={14} /> : n}
-              </span>
-              {label}
-            </span>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
 /** Connect an agent in three screens: pick it, copy one message, see it connect. */
 export function ConnectAgent({
   wsId,
@@ -105,6 +81,7 @@ export function ConnectAgent({
   onlineIds,
   roomName = "",
   summary = false,
+  stepLabels,
 }: {
   wsId: string;
   headers: HeadersInit;
@@ -116,6 +93,8 @@ export function ConnectAgent({
   roomName?: string;
   /** Also ask the agent to post a short summary of the project (a brand new room). */
   summary?: boolean;
+  /** The names over the circles when this is the last step of setting up. */
+  stepLabels?: string[];
 }) {
   const first = mode === "first";
   const [made, setMade] = useState<{ id: string; kind: string; token: string; repoUrl: string | null } | null>(null);
@@ -185,12 +164,12 @@ export function ConnectAgent({
       role="dialog"
       aria-modal="true"
       aria-label="Connect your agent"
-      className="soft-in fixed inset-0 z-50 flex flex-col items-center overflow-y-auto bg-white px-6 py-7 text-zinc-900"
+      className={`${first ? "" : "soft-in "}fixed inset-0 z-50 flex flex-col items-center overflow-y-auto bg-white px-6 py-7 text-zinc-900`}
       style={{ colorScheme: "light" }}
     >
-      <div className="flex w-full items-center justify-center">
+      <div className="flex min-h-6 w-full shrink-0 items-center justify-center">
         {first ? (
-          <Steps at={connected ? 4 : 3} />
+          <Steps at={connected ? 4 : 3} labels={stepLabels} />
         ) : (
           <button type="button" onClick={onClose} aria-label="Close" className={`ml-auto grid h-9 w-9 place-items-center rounded border border-zinc-200 hover:bg-zinc-50 ${focus}`}>
             <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
@@ -201,7 +180,7 @@ export function ConnectAgent({
       </div>
 
       {connected ? (
-        <div className="flex w-full max-w-md flex-1 flex-col items-center justify-center gap-7" aria-live="polite">
+        <div key="done" className="soft-in flex w-full max-w-md flex-1 flex-col items-center justify-center gap-7" aria-live="polite">
           <span className="grid h-[88px] w-[88px] place-items-center rounded-full bg-zinc-900 text-white">
             <Tick size={46} />
           </span>
@@ -220,7 +199,7 @@ export function ConnectAgent({
           </button>
         </div>
       ) : made ? (
-        <div className="flex w-full max-w-[420px] flex-1 flex-col items-center justify-center gap-7">
+        <div key="copy" className="soft-in flex w-full max-w-[420px] flex-1 flex-col items-center justify-center gap-7">
           <div className="flex flex-col items-center gap-3.5">
             <svg viewBox="0 0 24 24" className="h-10 w-10" fill={kind?.color} aria-hidden>
               <path d={kind?.logo} />
@@ -284,7 +263,7 @@ export function ConnectAgent({
           </div>
         </div>
       ) : (
-        <div className="flex w-full max-w-[560px] flex-1 flex-col items-center justify-center gap-7">
+        <div key="pick" className="soft-in flex w-full max-w-[560px] flex-1 flex-col items-center justify-center gap-7">
           <h2 className={title}>Which agent do you use?</h2>
           <div className="grid w-full grid-cols-3 gap-4">
             {KINDS.map((k, i) => (

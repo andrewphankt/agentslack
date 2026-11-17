@@ -200,7 +200,13 @@ export default async function HomePage({
   const raw = searchParams?.next ?? "";
   const next = /^\/(?!\/)[^\\]*$/.test(raw) && !raw.includes("://") ? raw : "";
   const userId = await signedInUserId();
-  if (!userId) return <SignedOutLanding next={next || "/"} />;
+  if (!userId) {
+    const code = /^\/join\/([A-Za-z0-9_-]+)$/.exec(next)?.[1];
+    const room = code
+      ? await prisma.workspace.findUnique({ where: { inviteCode: code }, select: { name: true } })
+      : null;
+    return <SignedOutLanding next={next || "/"} invitedTo={room?.name} />;
+  }
   if (next && next !== "/") redirect(next);
   // Signed in: straight into the room you opened last. `/?rooms=1` still shows every room.
   if (!searchParams?.rooms) {
