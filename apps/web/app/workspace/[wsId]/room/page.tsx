@@ -790,7 +790,7 @@ export default function RoomPage() {
   const mine = members.find((m) => m.userId === me);
   const myAgent = agents.find((a) => a.mine)?.name ?? null;
   // With several agents of your own, a request goes to whichever one you talk to next, so no single name is promised.
-  const askAgent = agents.filter((a) => a.mine).length > 1 ? "Your Agent" : myAgent;
+  const askLabel = agents.filter((a) => a.mine).length > 1 ? "Your Agent" : myAgent;
   const memberNames = useMemo(
     () => [...members.map((m) => m.name), ...new Set(agents.map((a) => a.name))],
     [members, agents]
@@ -1179,7 +1179,7 @@ export default function RoomPage() {
           avatars={avatarByName}
           onSaveLinks={saveLinks}
           onGoLive={goLive}
-          agent={askAgent}
+          agent={askLabel}
           onAskAgent={askAgent}
           roomApi={api}
         />
