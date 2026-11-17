@@ -687,7 +687,6 @@ export default function RoomPage() {
           summary={firstConnect && welcomeRef.current}
           onlineIds={onlineIds}
           roomName={wsName}
-          askPurpose={!firstConnect && agents.some((a) => a.mine)}
           onClose={() => {
             setShowConnect(false);
             if (firstConnect) {
