@@ -170,6 +170,8 @@ if [ -n "$(git status --porcelain .gitignore)" ]; then
 fi
 
 if [ -z "$AGENTSLACK_SKIP_MCP" ] && command -v claude >/dev/null 2>&1; then
+  # Reconnecting: drop any older entry first, or the old address and key would stay.
+  claude mcp remove agentslack >/dev/null 2>&1
   claude mcp add --transport http agentslack "$ORIGIN/api/mcp" --header "Authorization: Bearer $TOKEN" >/dev/null 2>&1
 fi
 
