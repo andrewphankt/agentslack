@@ -49,7 +49,7 @@ export async function POST(req: Request, ctx: { params: { wsId: string } }) {
       type: "chat",
       fromAgent: me,
       toTarget: "#changes",
-      content: { text: `Asked their agent to set up the ${SETUP_HOSTS[host]} preview.`, request, forOwner: me },
+      content: { text: host === "auto" ? "Asked their agent to set up the preview." : `Asked their agent to set up the ${SETUP_HOSTS[host]} preview.`, request, forOwner: me },
       messageId: randomUUID(),
     },
   });

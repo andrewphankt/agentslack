@@ -151,6 +151,7 @@ export function PreviewPanel({
   const [sure, setSure] = useState(false);
   const [copied, setCopied] = useState(false);
   const [asked, setAsked] = useState(false);
+  const [askedAny, setAskedAny] = useState(false);
   const [manual, setManual] = useState(false);
   // One-click Netlify: on only when this copy of the app has a Netlify app id.
   const [netlifyId, setNetlifyId] = useState<string | null>(null);
@@ -428,7 +429,11 @@ export function PreviewPanel({
                     <button
                       key={h.key}
                       type="button"
-                      onClick={() => setHost(h.key)}
+                      onClick={() => {
+                        setHost(h.key);
+                        // Netlify connects in one click when this copy of the app can.
+                        if (h.key === "netlify" && netlifyId) netlifySignIn();
+                      }}
                       className={`flex aspect-square flex-col items-center justify-center gap-3.5 rounded-md border border-zinc-200 bg-white hover:border-zinc-900 ${focus}`}
                     >
                       <svg
@@ -445,24 +450,58 @@ export function PreviewPanel({
                     </button>
                   ))}
                 </div>
-                <div className="flex gap-2.5">
-                  <button
-                    type="button"
-                    className={ghost}
-                    onClick={() => setHost("other")}
-                  >
-                    Paste a Link
-                  </button>
-                  <button
-                    type="button"
-                    className={`h-9 rounded px-4 text-sm font-semibold text-zinc-500 hover:text-zinc-900 ${focus}`}
-                    onClick={() => {
-                      setSkipped(true);
-                      setEditing(false);
-                    }}
-                  >
-                    Skip
-                  </button>
+                <div className="flex w-full max-w-[340px] flex-col items-center gap-3">
+                  {askedAny ? (
+                    <p role="status" className="text-center text-sm text-zinc-700">
+                      Sent to {agent}. Say anything to it, even just <span className="font-semibold">go</span>, and it starts.
+                    </p>
+                  ) : agent ? (
+                    <button
+                      type="button"
+                      className={`${solid} h-11 w-full`}
+                      onClick={async () => {
+                        setLinkErr(null);
+                        const err = await onAskAgent("auto");
+                        if (err) setLinkErr(err);
+                        else setAskedAny(true);
+                      }}
+                    >
+                      Ask {agent} to Set It Up
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className={`${solid} h-11 w-full`}
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(setupPrompt("auto") ?? "").then(() => {
+                          setCopied(true);
+                          setTimeout(() => setCopied(false), 2500);
+                        });
+                      }}
+                    >
+                      {copied ? "Copied. Paste It to Your Agent" : "Ask Your Agent to Set It Up"}
+                    </button>
+                  )}
+                  {linkErr && (
+                    <p role="alert" className="text-center text-sm text-red-600">
+                      {linkErr}
+                    </p>
+                  )}
+                  <div className="flex gap-5 text-[13px] text-zinc-500">
+                    <button type="button" className={`rounded hover:text-zinc-900 ${focus}`} onClick={() => setHost("other")}>
+                      Paste a Link
+                    </button>
+                    <button
+                      type="button"
+                      className={`rounded hover:text-zinc-900 ${focus}`}
+                      onClick={() => {
+                        setSkipped(true);
+                        setEditing(false);
+                      }}
+                    >
+                      Skip
+                    </button>
+                  </div>
                 </div>
               </>
             ) : (
