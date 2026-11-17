@@ -9,3 +9,73 @@
 body {
   @apply min-h-screen bg-zinc-950 text-zinc-100 antialiased;
 }
+
+/* ---- Landing page (scoped; ported from the nodemaps design) ---- */
+.landing {
+  --color-canvas: #f0ede8;
+  --color-surface: #f4f1ec;
+  --color-nav: rgba(240, 237, 232, 0.92);
+  --color-ink: #1a1a1a;
+  --color-muted: #6b6b6b;
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border2: rgba(0, 0, 0, 0.15);
+  --color-green: #2a7d5a;
+  color-scheme: light;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-family-mono);
+  font-size: 13px;
+}
+.landing .canvas-dotgrid {
+  background-color: var(--color-canvas);
+  background-image: radial-gradient(circle, rgba(0, 0, 0, 0.1) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+@keyframes landingFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.landing .animate-in { animation: landingFadeIn 0.25s ease both; }
+@media (prefers-reduced-motion: reduce) {
+  .landing .animate-in { animation: none; }
+}
+.landing a:focus-visible,
+.landing button:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+.landing .l-cta {
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--color-ink); color: var(--color-canvas);
+  border: 1px solid var(--color-ink); border-radius: 10px;
+  font-family: var(--font-family-mono); font-weight: 600;
+  font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 0.78rem 1.3rem; text-decoration: none; cursor: pointer;
+  transition: opacity 0.15s;
+}
+.landing .l-cta:hover { opacity: 0.85; }
+.landing .l-card {
+  display: flex; flex-direction: column; overflow: hidden; text-decoration: none;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 14px;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.landing a.l-card:hover { box-shadow: 0 6px 22px rgba(0, 0, 0, 0.09); transform: translateY(-2px); }
+.landing .l-ghost {
+  background: none; border: 1px solid var(--color-border2); border-radius: 5px;
+  color: var(--color-muted); cursor: pointer;
+  font-family: var(--font-family-mono); font-size: 0.58rem; font-weight: 600;
+  letter-spacing: 0.07em; text-transform: uppercase; padding: 0.32rem 0.8rem;
+}
+.landing .l-ghost:hover { border-color: var(--color-ink); color: var(--color-ink); }
+.landing .l-demo {
+  display: inline-flex; align-items: center; border: 1px solid var(--color-border2);
+  border-radius: 6px; padding: 0.4rem 0.8rem; text-decoration: none; color: var(--color-ink);
+  font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.landing .l-demo:hover { border-color: var(--color-ink); }
+@media (max-width: 800px) {
+  .landing .l-split { flex-direction: column; height: auto !important; }
+  .landing .l-hero { width: auto !important; padding: 2rem 1.25rem 1.5rem !important; }
+  .landing .l-panel { border-left: none !important; border-top: 1px solid var(--color-border); overflow: visible !important; }
+  .landing .l-panel-in { padding: 2rem 1.25rem 3rem !important; }
+}

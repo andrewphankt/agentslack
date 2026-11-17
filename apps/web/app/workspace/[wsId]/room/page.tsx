@@ -9,6 +9,9 @@ import { DemoSwitch } from "./DemoSwitch";
 import { ConnectAgent } from "./ConnectAgent";
 import { Invite } from "./Invite";
 import { RoomSwitcher } from "./RoomSwitcher";
+import { MediaMenu } from "./MediaMenu";
+import { MessageBody } from "./MessageBody";
+import { SortableRows, applyOrder, useSavedOrder } from "./SortableRows";
 
 type Channel = { id: string; kind: string; name: string; title: string };
 type Member = { userId: string; name: string; role: string; avatarUrl?: string | null };
@@ -19,6 +22,7 @@ type Msg = {
   authorAvatarUrl?: string | null;
   text: string;
   imageUrl?: string | null;
+  imageKind?: string;
   isAgent?: boolean;
   type?: string;
   createdAt: string;
@@ -66,7 +70,7 @@ export default function RoomPage() {
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
   const [picture, setPicture] = useState<{ file: File; url: string } | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [savedOrder, saveOrder] = useSavedOrder(me ? `as:channel-order:${wsId}:${me}` : null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [agents, setAgents] = useState<AgentRow[]>([]);
   const [showConnect, setShowConnect] = useState(false);
@@ -302,8 +306,13 @@ export default function RoomPage() {
 
   function attach(file: File | null | undefined) {
     if (!file) return;
-    if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) return setErr("Only PNG, JPG, GIF or WebP pictures");
-    if (file.size > 5 * 1024 * 1024) return setErr("Pictures can be up to 5 MB");
+    const isVideo = /^video\/(mp4|webm|quicktime)$/.test(file.type);
+    if (!isVideo && !/^image\/(png|jpeg|gif|webp)$/.test(file.type)) {
+      return setErr("Only PNG, JPG, GIF, WebP, MP4, WebM or MOV files");
+    }
+    if (isVideo ? file.size > 25 * 1024 * 1024 : file.size > 5 * 1024 * 1024) {
+      return setErr(isVideo ? "Videos can be up to 25 MB" : "Pictures can be up to 5 MB");
+    }
     setErr(null);
     setPicture((old) => {
       if (old) URL.revokeObjectURL(old.url);
@@ -323,7 +332,10 @@ export default function RoomPage() {
           headers: { "Content-Type": picture.file.type },
           body: picture.file,
         });
-        if (!up.ok) return setErr("Picture failed to upload");
+        if (!up.ok) {
+          const j = (await up.json().catch(() => ({}))) as { error?: string };
+          return setErr(j.error ?? "File failed to upload");
+        }
         imageId = ((await up.json()) as { id: string }).id;
       }
       const res = await api(`/channels/${current.id}/messages`, {
@@ -363,6 +375,16 @@ export default function RoomPage() {
     () => new Map(agents.map((a) => [a.label, a.kind])),
     [agents]
   );
+
+  const orderedChannels = useMemo(
+    () => applyOrder(channels.filter((c) => c.kind === "channel"), savedOrder),
+    [channels, savedOrder]
+  );
+
+  const keepPinned = useCallback(() => {
+    const el = listRef.current;
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+  }, []);
 
   const dmByUser = useMemo(() => {
     const map = new Map<string, Channel>();
@@ -420,19 +442,24 @@ export default function RoomPage() {
               className="mb-1 w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm outline-none focus:border-blue-500"
             />
           )}
-          {channels
-            .filter((c) => c.kind === "channel")
-            .map((c) => (
+          <SortableRows
+            label="Channels"
+            items={orderedChannels}
+            onReorder={saveOrder}
+            renderItem={(c) => (
               <button
-                key={c.id}
                 type="button"
                 className={row(current?.id === c.id)}
                 onClick={() => openChannel(c)}
+                aria-current={current?.id === c.id ? "true" : undefined}
+                title="Drag, or Alt+Up and Alt+Down, to reorder"
               >
                 <span className="truncate"># {c.name}</span>
                 {unread.has(c.id) && unreadDot}
               </button>
-            ))}
+            )}
+          />
+
         </div>
 
         <div>
@@ -602,27 +629,13 @@ export default function RoomPage() {
                 {m.isAgent && (m.type === undefined || m.type === "note") ? (
                   <AgentNote text={m.text} />
                 ) : (
-                  <>
-                    {m.text && (
-                      <div className="max-w-[72ch] whitespace-pre-wrap break-words text-sm text-zinc-800">
-                        {m.text}
-                      </div>
-                    )}
-                    {m.imageUrl && (
-                      <a href={m.imageUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={m.imageUrl}
-                          alt={m.text || `Picture from ${m.authorName}`}
-                          onLoad={() => {
-                            const el = listRef.current;
-                            if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-                          }}
-                          className="max-h-80 max-w-full rounded-lg border border-zinc-200 sm:max-w-md"
-                        />
-                      </a>
-                    )}
-                  </>
+                  <MessageBody
+                    text={m.text}
+                    imageUrl={m.imageUrl}
+                    imageKind={m.imageKind}
+                    alt={m.text || `Picture from ${m.authorName}`}
+                    onLoaded={keepPinned}
+                  />
                 )}
               </div>
             </div>
@@ -640,11 +653,22 @@ export default function RoomPage() {
         >
           {picture && (
             <div className="mb-2 inline-flex items-start gap-1">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={picture.url} alt="Picture to send" className="h-20 rounded border border-zinc-200" />
+              {picture.file.type.startsWith("video/") ? (
+                <video
+                  src={picture.url}
+                  muted
+                  playsInline
+                  preload="metadata"
+                  aria-label="Video to send"
+                  className="h-20 rounded border border-zinc-200"
+                />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={picture.url} alt="Picture to send" className="h-20 rounded border border-zinc-200" />
+              )}
               <button
                 type="button"
-                aria-label="Remove picture"
+                aria-label="Remove attachment"
                 className="grid h-6 w-6 place-items-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 onClick={() => {
                   URL.revokeObjectURL(picture.url);
@@ -656,33 +680,16 @@ export default function RoomPage() {
             </div>
           )}
           <div className="flex items-end gap-2">
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp"
-            className="hidden"
-            onChange={(e) => {
-              attach(e.target.files?.[0]);
-              e.target.value = "";
-            }}
-          />
-          <button
-            type="button"
-            aria-label="Add a picture"
-            title="Add a picture (or paste one)"
+          <MediaMenu
             disabled={!current}
-            onClick={() => fileRef.current?.click()}
-            className="grid h-10 w-10 shrink-0 place-items-center rounded border border-zinc-300 text-zinc-600 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-60"
-          >
-            <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <rect x="3" y="4" width="14" height="12" rx="2" />
-              <circle cx="7.5" cy="8.5" r="1.2" />
-              <path d="M3.5 14l4-4 3 3 2.5-2.5 3.5 3.5" />
-            </svg>
-          </button>
+            onFile={attach}
+            onLink={(u) => setText((t) => (t.trim() ? `${t.trimEnd()} ${u}` : u))}
+          />
           <textarea
             onPaste={(e) => {
-              const f = Array.from(e.clipboardData.files).find((x) => x.type.startsWith("image/"));
+              const f = Array.from(e.clipboardData.files).find(
+                (x) => x.type.startsWith("image/") || x.type.startsWith("video/")
+              );
               if (f) {
                 e.preventDefault();
                 attach(f);

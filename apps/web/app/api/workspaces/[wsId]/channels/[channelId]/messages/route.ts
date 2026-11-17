@@ -41,7 +41,8 @@ function shape(
     createdAt: Date;
   },
   names: Map<string, string>,
-  avatars: Map<string, string | null>
+  avatars: Map<string, string | null>,
+  mimes: Map<string, string>
 ) {
   const content = m.content as { text?: unknown; imageId?: unknown } | null;
   const text = content?.text;
@@ -49,6 +50,8 @@ function shape(
   return {
     imageUrl:
       typeof imageId === "string" ? `/api/workspaces/${m.workspaceId}/uploads/${imageId}` : null,
+    imageKind:
+      typeof imageId === "string" && mimes.get(imageId)?.startsWith("video/") ? "video" : "image",
     id: m.id,
     authorUserId: m.authorUserId,
     authorName: m.authorAgentId
@@ -61,6 +64,20 @@ function shape(
     text: typeof text === "string" ? text : "",
     createdAt: m.createdAt.toISOString(),
   };
+}
+
+/** One query for the mimes of every upload the given messages point at. */
+async function uploadMimes(rows: { content: unknown }[]): Promise<Map<string, string>> {
+  const ids = rows.flatMap((m) => {
+    const id = (m.content as { imageId?: unknown } | null)?.imageId;
+    return typeof id === "string" ? [id] : [];
+  });
+  if (!ids.length) return new Map();
+  const ups = await prisma.upload.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, mime: true },
+  });
+  return new Map(ups.map((u) => [u.id, u.mime]));
 }
 
 export async function GET(req: Request, ctx: Ctx) {
@@ -87,7 +104,8 @@ export async function GET(req: Request, ctx: Ctx) {
         })
       ).reverse();
   const avatars = await avatarUrls(rows.flatMap((m) => (m.authorUserId ? [m.authorUserId] : [])));
-  return NextResponse.json({ messages: rows.map((m) => shape(m, names, avatars)) });
+  const mimes = await uploadMimes(rows);
+  return NextResponse.json({ messages: rows.map((m) => shape(m, names, avatars, mimes)) });
 }
 
 export async function POST(req: Request, ctx: Ctx) {
@@ -132,5 +150,6 @@ export async function POST(req: Request, ctx: Ctx) {
   });
   const names = await displayNames(ctx.params.wsId);
   const avatars = await avatarUrls([userId]);
-  return NextResponse.json({ message: shape(row, names, avatars) });
+  const mimes = await uploadMimes([row]);
+  return NextResponse.json({ message: shape(row, names, avatars, mimes) });
 }
