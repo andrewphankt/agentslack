@@ -1,3 +1,4 @@
+import { PRD_MAX, postPrd } from "@/lib/prd";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
@@ -204,33 +205,8 @@ async function postNote(agent: Agent, args: Record<string, unknown>): Promise<To
 async function writePrd(agent: Agent, args: Record<string, unknown>): Promise<ToolResult> {
   const body = typeof args.text === "string" ? args.text.trim() : "";
   if (!body) return text("text is required", true);
-  if (body.length > 3000) return text("text must be 3000 characters or fewer", true);
-  const names = await displayNames(agent.workspaceId);
-  const channel = await prisma.channel.upsert({
-    where: {
-      workspaceId_kind_name: { workspaceId: agent.workspaceId, kind: "channel", name: "prd" },
-    },
-    update: {},
-    create: { workspaceId: agent.workspaceId, kind: "channel", name: "prd" },
-  });
-  const row = await prisma.collaborationMessage.create({
-    data: {
-      workspaceId: agent.workspaceId,
-      channelId: channel.id,
-      authorAgentId: agent.id,
-      authorUserId: null,
-      type: "prd",
-      fromAgent: agentLabel(agent, names),
-      toTarget: "#prd",
-      content: { text: body },
-      messageId: randomUUID(),
-    },
-  });
-  await broadcastWorkspaceEvent(agent.workspaceId, {
-    type: "chat_message",
-    channelId: channel.id,
-    messageId: row.id,
-  });
+  if (body.length > PRD_MAX) return text(`text must be ${PRD_MAX} characters or fewer`, true);
+  await postPrd(agent, body);
   return text("Posted to #prd.");
 }
 

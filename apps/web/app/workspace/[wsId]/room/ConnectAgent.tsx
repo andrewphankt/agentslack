@@ -27,6 +27,27 @@ function command(kind: string, origin: string, token: string, first: boolean): s
   );
 }
 
+/** A message to paste to an agent that is already running in the project. */
+function agentMessage(origin: string, token: string, first: boolean): string {
+  const lines = [
+    "Connect this project to my team room. Run this in the project folder:",
+    "",
+    `curl -fsSL ${origin}/api/connect | sh -s -- ${token}`,
+  ];
+  if (first)
+    lines.push(
+      "",
+      "Then read the project and post a short summary to the room (1 to 2 short paragraphs: what it is, who it is for, what exists so far) by running:",
+      "",
+      `curl -fsS -X POST ${origin}/api/hook/prd -H "Authorization: Bearer ${token}" --data-urlencode "text=YOUR SUMMARY HERE"`,
+    );
+  lines.push(
+    "",
+    "When that is done, tell me to restart you once (exit, then run: claude --continue) so automatic saving and teammate warnings switch on.",
+  );
+  return lines.join("\n");
+}
+
 /** Pick an agent, get a one-time command to paste in a terminal. */
 export function ConnectAgent({
   wsId,
@@ -49,7 +70,15 @@ export function ConnectAgent({
   const first = mode === "first";
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const [cmd, setCmd] = useState("");
+  const [made, setMade] = useState<{ kind: string; token: string } | null>(null);
+  /** "agent": a message for a running agent. "terminal": a command to paste. */
+  const [via, setVia] = useState<"agent" | "terminal">("agent");
+  const canTell = made?.kind === "claude";
+  const cmd = !made
+    ? ""
+    : canTell && via === "agent"
+      ? agentMessage(window.location.origin, made.token, first)
+      : command(made.kind, window.location.origin, made.token, first);
   const [busy, setBusy] = useState(false);
   const [purpose, setPurpose] = useState("");
   const [error, setError] = useState("");
@@ -83,7 +112,8 @@ export function ConnectAgent({
       });
       if (!res.ok) throw new Error();
       const { token } = (await res.json()) as { token: string };
-      setCmd(command(kind, window.location.origin, token, first));
+      setMade({ kind, token });
+      setCopied(false);
     } catch {
       setError("Could not create the agent.");
     } finally {
@@ -126,10 +156,40 @@ export function ConnectAgent({
           <p className="py-6 text-center text-sm font-medium">Your agent is connected.</p>
         ) : cmd ? (
           <>
+            {canTell && (
+              <div role="tablist" aria-label="How to connect" className="mb-3 flex gap-1 rounded-lg bg-zinc-950 p-1">
+                {(
+                  [
+                    ["agent", "Tell your agent"],
+                    ["terminal", "Use the terminal"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    aria-selected={via === key}
+                    onClick={() => {
+                      setVia(key);
+                      setCopied(false);
+                    }}
+                    className={`h-9 flex-1 rounded-md text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                      via === key ? "bg-zinc-700 text-white" : "text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             <h2 className="mb-3 text-sm font-semibold">
-              {first ? "Run this in your project folder." : "Paste this in your terminal"}
+              {canTell && via === "agent"
+                ? "Paste this to the agent already working on your project."
+                : first
+                  ? "Run this in your project folder."
+                  : "Paste this in your terminal"}
             </h2>
-            <div className="break-all rounded border border-zinc-700 bg-zinc-950 p-3 font-mono text-xs text-zinc-300">
+            <div className="max-h-56 overflow-y-auto whitespace-pre-wrap break-all rounded border border-zinc-700 bg-zinc-950 p-3 font-mono text-xs text-zinc-300">
               {cmd}
             </div>
             <div className="mt-2 flex items-center justify-between">
