@@ -11,6 +11,7 @@ import { Invite } from "./Invite";
 import { RoomSwitcher } from "./RoomSwitcher";
 import { MediaMenu } from "./MediaMenu";
 import { MessageBody } from "./MessageBody";
+import { PreviewPanel, type DraftInfo } from "./PreviewPanel";
 import { SortableRows, applyOrder, useSavedOrder } from "./SortableRows";
 
 type Channel = { id: string; kind: string; name: string; title: string };
@@ -55,6 +56,10 @@ function mergeMsgs(prev: Msg[], add: Msg[]): Msg[] {
 export default function RoomPage() {
   const params = useParams();
   const wsId = params.wsId as string;
+  // Remember this room so signing in lands here next time.
+  useEffect(() => {
+    document.cookie = `as_last_room=${encodeURIComponent(wsId)}; path=/; max-age=31536000; samesite=lax`;
+  }, [wsId]);
   const headers = useJsonHeaders();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -83,6 +88,12 @@ export default function RoomPage() {
   const [prdArrived, setPrdArrived] = useState(false);
   const welcomeDone = useRef(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [draft, setDraft] = useState<DraftInfo | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const previewOpenRef = useRef(false);
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  previewOpenRef.current = previewOpen;
 
   const currentRef = useRef<Channel | null>(null);
   const channelsRef = useRef<Channel[]>([]);
@@ -125,6 +136,66 @@ export default function RoomPage() {
     const res = await api("/agents");
     if (res.ok) setAgents(((await res.json()) as { agents: AgentRow[] }).agents);
   }, [api]);
+
+  const loadDraft = useCallback(async () => {
+    const res = await api("/draft");
+    if (res.ok) setDraft((await res.json()) as DraftInfo);
+  }, [api]);
+
+  const loadDraftRef = useRef(loadDraft);
+  loadDraftRef.current = loadDraft;
+
+  // Remember whether the preview panel is open.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(`as:preview-open:${wsId}`) === "1") setPreviewOpen(true);
+    } catch {
+      /* storage unavailable */
+    }
+  }, [wsId]);
+
+  function togglePreview(open: boolean) {
+    setPreviewOpen(open);
+    try {
+      localStorage.setItem(`as:preview-open:${wsId}`, open ? "1" : "0");
+    } catch {
+      /* storage unavailable */
+    }
+  }
+
+  useEffect(() => {
+    if (previewOpen) void loadDraft();
+  }, [previewOpen, loadDraft]);
+
+  useEffect(
+    () => () => {
+      if (reloadTimer.current) clearTimeout(reloadTimer.current);
+    },
+    []
+  );
+
+  async function saveLinks(patch: { previewUrl?: string; liveUrl?: string }): Promise<string | null> {
+    const res = await api("/draft", { method: "PATCH", body: JSON.stringify(patch) });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      return j.error ?? "Could not save the link";
+    }
+    await loadDraft();
+    return null;
+  }
+
+  async function goLive(): Promise<string | null> {
+    const fallback = "The site did not respond. Try again in a minute.";
+    try {
+      const res = await api("/draft/live", { method: "POST" });
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+      await loadDraft();
+      if (res.ok && j.ok) return null;
+      return j.message ?? fallback;
+    } catch {
+      return fallback;
+    }
+  }
 
   async function removeAgent(id: string) {
     if (confirmId !== id) return setConfirmId(id);
@@ -245,6 +316,16 @@ export default function RoomPage() {
               (c) => c.kind === "channel" && c.name === "prd"
             )?.id;
             if (ev.channelId === prdId) setPrdArrived(true);
+            const changesId = channelsRef.current.find(
+              (c) => c.kind === "channel" && c.name === "changes"
+            )?.id;
+            if (ev.channelId === changesId) {
+              void loadDraftRef.current();
+              if (previewOpenRef.current) {
+                if (reloadTimer.current) clearTimeout(reloadTimer.current);
+                reloadTimer.current = setTimeout(() => setReloadKey((k) => k + 1), 40_000);
+              }
+            }
             if (ev.channelId === currentRef.current?.id) void fetchNew();
             else
               setUnread((u) => {
@@ -254,6 +335,8 @@ export default function RoomPage() {
               });
           } else if (ev.type === "chat_channels_changed") {
             void loadChannels();
+          } else if (ev.type === "draft_changed") {
+            void loadDraftRef.current();
           } else if (ev.type === "agents_changed") {
             void loadAgents();
           }
@@ -556,6 +639,7 @@ export default function RoomPage() {
         />
       )}
 
+      <div className="relative flex min-w-0 flex-1">
       <main
         className="flex min-w-0 flex-1 flex-col bg-white text-zinc-900"
         style={{ colorScheme: "light" }}
@@ -593,6 +677,16 @@ export default function RoomPage() {
                 </span>
               )}
             </div>
+            <button
+              type="button"
+              aria-pressed={previewOpen}
+              onClick={() => togglePreview(!previewOpen)}
+              className={`rounded-md border px-3 py-[3px] text-sm font-medium text-zinc-800 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 ${
+                previewOpen ? "border-zinc-500 bg-zinc-100" : "border-zinc-300 bg-white"
+              }`}
+            >
+              Preview
+            </button>
             <Invite inviteCode={inviteCode} />
             <span
               role="img"
@@ -735,6 +829,16 @@ export default function RoomPage() {
           </div>
         </div>
       </main>
+      {previewOpen && (
+        <PreviewPanel
+          draft={draft}
+          reloadKey={reloadKey}
+          onClose={() => togglePreview(false)}
+          onSaveLinks={saveLinks}
+          onGoLive={goLive}
+        />
+      )}
+      </div>
     </div>
   );
 }

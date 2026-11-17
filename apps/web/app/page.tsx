@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { Inter, JetBrains_Mono, Rajdhani } from "next/font/google";
 import { SignedOutLanding } from "@/components/SignedOutLanding";
 import { prisma } from "@/lib/prisma";
@@ -190,9 +191,20 @@ function ExampleCard({ ex }: { ex: (typeof EXAMPLES)[number] }) {
   );
 }
 
-export default async function HomePage() {
+export default async function HomePage({ searchParams }: { searchParams?: { rooms?: string } }) {
   const userId = await signedInUserId();
   if (!userId) return <SignedOutLanding />;
+  // Signed in: straight into the room you opened last. `/?rooms=1` still shows every room.
+  if (!searchParams?.rooms) {
+    const memberships = await prisma.workspaceMember.findMany({
+      where: { userId },
+      orderBy: { joinedAt: "desc" },
+      select: { workspaceId: true },
+    });
+    const last = cookies().get("as_last_room")?.value;
+    const target = memberships.find((m) => m.workspaceId === last) ?? memberships[0];
+    redirect(target ? `/workspace/${target.workspaceId}/room` : "/start");
+  }
   const [user, rooms] = userId
     ? await Promise.all([
         prisma.user.findUnique({ where: { id: userId }, select: { displayName: true, email: true, avatarUrl: true } }),

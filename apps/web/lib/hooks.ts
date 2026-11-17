@@ -71,6 +71,28 @@ export async function postChangesNote(agent: HookAgent, files: string[], sha: st
   });
 }
 
+/** A short message in #changes written by a person (for example "Sent the draft live"). */
+export async function postPersonNote(wsId: string, userId: string, text: string) {
+  const channel = await ensureChannel(wsId, "changes");
+  const row = await prisma.collaborationMessage.create({
+    data: {
+      workspaceId: wsId,
+      channelId: channel.id,
+      authorUserId: userId,
+      type: "chat",
+      fromAgent: userId,
+      toTarget: "#changes",
+      content: { text },
+      messageId: randomUUID(),
+    },
+  });
+  await broadcastWorkspaceEvent(wsId, {
+    type: "chat_message",
+    channelId: channel.id,
+    messageId: row.id,
+  });
+}
+
 export async function touchFiles(agent: HookAgent, files: string[]) {
   const now = new Date();
   for (const p of files) {
