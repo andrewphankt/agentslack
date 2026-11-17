@@ -63,6 +63,8 @@ export async function POST(req: Request, ctx: { params: { wsId: string } }) {
   const body = (await req.json().catch(() => ({}))) as {
     name?: string;
     userId?: string;
+    /** A brand new channel: never reuse one that has this name, add a number instead. */
+    fresh?: boolean;
   };
 
   let channel: Ch;
@@ -87,13 +89,21 @@ export async function POST(req: Request, ctx: { params: { wsId: string } }) {
       create: { workspaceId: wsId, kind: "dm", name: ids.join(":"), memberIds: ids },
     });
   } else {
-    const slug = String(body.name ?? "")
+    let slug = String(body.name ?? "")
       .toLowerCase()
+      .trim()
       .replace(/\s+/g, "-")
       .replace(/[^a-z0-9_-]/g, "")
       .slice(0, 40);
     if (!slug) {
       return NextResponse.json({ error: "Name required" }, { status: 400 });
+    }
+    if (body.fresh) {
+      const taken = new Set(
+        (await prisma.channel.findMany({ where: { workspaceId: wsId, kind: "channel" }, select: { name: true } })).map((c) => c.name)
+      );
+      const base = slug.slice(0, 36);
+      for (let n = 2; taken.has(slug); n++) slug = `${base}-${n}`;
     }
     channel = await prisma.channel.upsert({
       where: {

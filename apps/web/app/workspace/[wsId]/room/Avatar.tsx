@@ -1,3 +1,5 @@
+import { LOGO } from "./logos";
+
 const COLORS = [
   "bg-rose-500",
   "bg-amber-500",
@@ -71,7 +73,12 @@ export function Avatar({
   );
 }
 
-const SLOT_COLORS = ["bg-zinc-600", "bg-sky-500", "bg-rose-500", "bg-emerald-500", "bg-amber-500", "bg-violet-500"];
+const BADGE: Record<string, { d: string; color: string }> = {
+  claude: { d: LOGO.claude, color: "#D97757" },
+  codex: { d: LOGO.openai, color: "#111111" },
+  gemini: { d: LOGO.googlegemini, color: "#8E75B2" },
+};
+
 
 /**
  * An agent looks like its owner (their picture, round) with a small square badge
@@ -81,13 +88,13 @@ export function AgentAvatar({
   ownerName,
   ownerAvatarUrl,
   kind,
-  slot = 0,
   size = 24,
-  ring = "ring-zinc-950",
+  ring = "ring-[#f5f5f3]",
 }: {
   ownerName: string;
   ownerAvatarUrl?: string | null;
   kind?: string;
+  /** Kept for callers; the badge is the tool's logo now, not a colour. */
   slot?: number;
   size?: 20 | 24 | 32;
   ring?: string;
@@ -97,11 +104,11 @@ export function AgentAvatar({
     <span className="relative inline-flex shrink-0" aria-hidden>
       <Avatar name={ownerName} avatarUrl={ownerAvatarUrl} size={size} />
       <span
-        className={`absolute -bottom-1 -right-1.5 grid place-items-center rounded px-0.5 font-bold leading-none text-white ring-2 ${ring} ${
-          big ? "h-4 min-w-4 text-[9px]" : "h-3.5 min-w-3.5 text-[8px]"
-        } ${SLOT_COLORS[slot % SLOT_COLORS.length]}`}
+        className={`absolute -bottom-1 -right-1.5 grid place-items-center rounded bg-white ring-2 ${ring} ${big ? "h-4 w-4" : "h-3.5 w-3.5"}`}
       >
-        {agentCode(kind)}
+        <svg viewBox="0 0 24 24" className={big ? "h-3 w-3" : "h-2.5 w-2.5"} fill={BADGE[kind ?? ""]?.color ?? "#52525b"} aria-hidden>
+          <path d={BADGE[kind ?? ""]?.d ?? "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"} />
+        </svg>
       </span>
     </span>
   );

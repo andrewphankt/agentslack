@@ -223,8 +223,8 @@ export function MediaMenu({
         title="Add media (or paste or drop a file)"
         disabled={disabled}
         onClick={() => (open ? close() : setOpen(true))}
-        className={`grid h-10 w-10 place-items-center rounded-full text-2xl leading-none disabled:opacity-60 ${ring} ${
-          open ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-800 hover:bg-zinc-200"
+        className={`grid h-9 w-9 shrink-0 place-items-center rounded text-xl leading-none disabled:opacity-60 ${ring} ${
+          open ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
         }`}
         style={{
           transform: open ? "rotate(135deg)" : "rotate(0deg)",

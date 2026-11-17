@@ -6,10 +6,11 @@ import { useJsonHeaders } from "@/hooks/useActorUserId";
 import { AccountMenu } from "./AccountMenu";
 import { AgentNote } from "./AgentNote";
 import { AgentAvatar, Avatar, agentCode } from "./Avatar";
+import { Composer } from "./Composer";
+import { Confirm } from "./Confirm";
 import { ConnectAgent } from "./ConnectAgent";
 import { Invite } from "./Invite";
 import { RoomSwitcher } from "./RoomSwitcher";
-import { MediaMenu } from "./MediaMenu";
 import { MessageBody } from "./MessageBody";
 import { PreviewPanel, type DraftInfo } from "./PreviewPanel";
 import { SortableRows, applyOrder, useSavedOrder } from "./SortableRows";
@@ -25,6 +26,7 @@ type Msg = {
   imageUrl?: string | null;
   imageKind?: string;
   isAgent?: boolean;
+  edited?: boolean;
   type?: string;
   createdAt: string;
 };
@@ -35,12 +37,32 @@ type AgentRow = {
   short: string;
   purpose?: string | null;
   ownerName: string;
+  ownerUserId: string;
   ownerAvatarUrl?: string | null;
   slot: number;
   mine: boolean;
   online: boolean;
   activeFile?: string | null;
 };
+
+const CORE = new Set(["general", "prd", "changes"]);
+const DOTS = (
+  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
+    <circle cx="5" cy="12" r="1.8" />
+    <circle cx="12" cy="12" r="1.8" />
+    <circle cx="19" cy="12" r="1.8" />
+  </svg>
+);
+const TRASH = (
+  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" />
+  </svg>
+);
+const PENCIL = (
+  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />
+  </svg>
+);
 
 function hhmm(iso: string) {
   const d = new Date(iso);
@@ -77,8 +99,14 @@ export default function RoomPage() {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [showNew, setShowNew] = useState(false);
-  const [newName, setNewName] = useState("");
+  /** A new channel being named, or an existing one being renamed (its id). */
+  const [naming, setNaming] = useState<string | null>(null);
+  const [nameText, setNameText] = useState("");
+  const [menuId, setMenuId] = useState<string | null>(null);
+  const [ask, setAsk] = useState<{ title: string; body?: string; action: string; run: () => void } | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const [card, setCard] = useState<{ userId: string; x: number; y: number } | null>(null);
   const [picture, setPicture] = useState<{ file: File; url: string } | null>(null);
   const [savedOrder, saveOrder] = useSavedOrder(me ? `as:channel-order:${wsId}:${me}` : null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -87,7 +115,6 @@ export default function RoomPage() {
   const [firstConnect, setFirstConnect] = useState(false);
   const [agentsLoaded, setAgentsLoaded] = useState(false);
   const welcomeDone = useRef(false);
-  const [confirmId, setConfirmId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [draft, setDraft] = useState<DraftInfo | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -199,11 +226,16 @@ export default function RoomPage() {
     }
   }
 
-  async function removeAgent(id: string) {
-    if (confirmId !== id) return setConfirmId(id);
-    setConfirmId(null);
-    await api(`/agents/${id}`, { method: "DELETE" });
-    void loadAgents();
+  function removeAgent(a: AgentRow) {
+    setAsk({
+      title: `Disconnect ${a.label}?`,
+      body: "It stops saving to this room. You can connect it again any time.",
+      action: "Disconnect",
+      run: async () => {
+        await api(`/agents/${a.id}`, { method: "DELETE" });
+        void loadAgents();
+      },
+    });
   }
 
   const openChannel = useCallback((c: Channel, keepPreview = false) => {
@@ -293,6 +325,16 @@ export default function RoomPage() {
     };
   }, [api, current]);
 
+  const reload = useCallback(async () => {
+    const c = currentRef.current;
+    if (!c) return;
+    const res = await api(`/channels/${c.id}/messages`);
+    if (!res.ok || currentRef.current?.id !== c.id) return;
+    setMessages(((await res.json()) as { messages: Msg[] }).messages);
+  }, [api]);
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
+
   const fetchNew = useCallback(async () => {
     const c = currentRef.current;
     if (!c) return;
@@ -350,6 +392,8 @@ export default function RoomPage() {
                 n.add(ev.channelId!);
                 return n;
               });
+          } else if (ev.type === "chat_message_changed") {
+            if (ev.channelId === currentRef.current?.id) void reloadRef.current();
           } else if (ev.type === "chat_channels_changed") {
             void loadChannels();
           } else if (ev.type === "draft_changed") {
@@ -389,17 +433,101 @@ export default function RoomPage() {
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
   }, [messages, current]);
 
-  async function createChannel() {
-    const name = newName.trim();
+  /** Enter or a click away: a new channel is made (named "untitled" if left empty), or the rename is saved. */
+  async function commitName() {
+    const id = naming;
+    if (!id) return;
+    setNaming(null);
+    const name = nameText.trim();
+    setNameText("");
+    if (id === "new") {
+      const res = await api("/channels", { method: "POST", body: JSON.stringify({ name: name || "untitled", fresh: true }) });
+      if (!res.ok) return setErr("Could not create channel");
+      const { channel } = (await res.json()) as { channel: Channel };
+      await loadChannels();
+      openChannel(channel);
+      return;
+    }
     if (!name) return;
-    const res = await api("/channels", { method: "POST", body: JSON.stringify({ name }) });
-    if (!res.ok) return setErr("Could not create channel");
-    const { channel } = (await res.json()) as { channel: Channel };
-    setNewName("");
-    setShowNew(false);
+    const res = await api(`/channels/${id}`, { method: "PATCH", body: JSON.stringify({ name }) });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      return setErr(j.error ?? "Could not rename the channel");
+    }
+    setErr(null);
     await loadChannels();
-    openChannel(channel);
   }
+
+  function deleteChannel(c: Channel) {
+    setAsk({
+      title: `Delete #${c.name}?`,
+      body: "Every message in it is deleted for everyone. This cannot be undone.",
+      action: "Delete",
+      run: async () => {
+        const res = await api(`/channels/${c.id}`, { method: "DELETE" });
+        if (!res.ok) return setErr("Could not delete the channel");
+        const list = await loadChannels();
+        if (currentRef.current?.id === c.id) {
+          const g = list?.find((x) => x.kind === "channel" && x.name === "general") ?? list?.[0];
+          if (g) openChannel(g);
+        }
+      },
+    });
+  }
+
+  async function saveEdit(m: Msg) {
+    const next = editText.trim();
+    setEditId(null);
+    if (!next || next === m.text || !current) return;
+    const res = await api(`/channels/${current.id}/messages/${m.id}`, { method: "PATCH", body: JSON.stringify({ text: next }) });
+    if (!res.ok) return setErr("Could not save the change");
+    await reload();
+  }
+
+  function deleteMessage(m: Msg) {
+    setAsk({
+      title: "Delete this message?",
+      body: "It is removed for everyone.",
+      action: "Delete",
+      run: async () => {
+        if (!current) return;
+        const res = await api(`/channels/${current.id}/messages/${m.id}`, { method: "DELETE" });
+        if (!res.ok) return setErr("Could not delete the message");
+        await reload();
+      },
+    });
+  }
+
+  function openCard(userId: string | null | undefined, el: HTMLElement) {
+    if (!userId) return;
+    const r = el.getBoundingClientRect();
+    setCard({
+      userId,
+      x: Math.max(8, Math.min(r.left, window.innerWidth - 256)),
+      y: Math.max(8, Math.min(r.bottom + 6, window.innerHeight - 240)),
+    });
+  }
+
+  // Menus and the person card close on Escape or a click elsewhere.
+  useEffect(() => {
+    if (!menuId && !card) return;
+    const close = () => {
+      setMenuId(null);
+      setCard(null);
+    };
+    const onDown = (e: MouseEvent) => {
+      if (!(e.target as Element | null)?.closest?.("[data-pop]")) close();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuId, card]);
 
   async function openDm(userId: string) {
     const res = await api("/channels", { method: "POST", body: JSON.stringify({ userId }) });
@@ -508,6 +636,8 @@ export default function RoomPage() {
   const unreadDot = <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-500" />;
   const shownMembers = members.slice(0, 5);
   const mine = members.find((m) => m.userId === me);
+  const memberNames = useMemo(() => members.map((m) => m.name), [members]);
+  const cardOf = card ? members.find((m) => m.userId === card.userId) : undefined;
   const avatarByName = useMemo(() => new Map(members.map((m) => [m.name, m.avatarUrl ?? null])), [members]);
   const onlineIds = useMemo(() => new Set(agents.filter((a) => a.online).map((a) => a.id)), [agents]);
   const newCount = draft?.status?.state === "ready" ? draft.status.ahead : 0;
@@ -567,44 +697,125 @@ export default function RoomPage() {
             <button
               type="button"
               className={plus}
-              onClick={() => setShowNew((v) => !v)}
+              onClick={() => {
+                setNameText("");
+                setNaming("new");
+              }}
               aria-label="New channel"
             >
               +
             </button>
           </div>
-          {showNew && (
-            <input
-              autoFocus
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void createChannel();
-                if (e.key === "Escape") setShowNew(false);
-              }}
-              placeholder="channel-name"
-              aria-label="New channel name"
-              className="mb-1 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-zinc-900"
-            />
-          )}
           <SortableRows
             label="Channels"
             items={orderedChannels}
             onReorder={saveOrder}
-            renderItem={(c) => (
-              <button
-                type="button"
-                className={row(!previewOpen && current?.id === c.id)}
-                onClick={() => openChannel(c)}
-                aria-current={!previewOpen && current?.id === c.id ? "true" : undefined}
-                title="Drag, or Alt+Up and Alt+Down, to reorder"
-              >
-                <span className="truncate"># {c.name}</span>
-                {unread.has(c.id) && unreadDot}
-              </button>
-            )}
+            renderItem={(c) => {
+              const active = !previewOpen && current?.id === c.id;
+              if (naming === c.id) return <input
+                autoFocus
+                value={nameText}
+                maxLength={40}
+                placeholder={c.name}
+                aria-label="Channel name"
+                onPointerDown={(e) => e.stopPropagation()}
+                onChange={(e) => setNameText(e.target.value)}
+                onBlur={() => void commitName()}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") e.currentTarget.blur();
+                  if (e.key === "Escape") {
+                    setNameText("");
+                    setNaming(null);
+                  }
+                }}
+                className="w-full rounded border border-zinc-900 bg-white px-2 py-[3px] text-sm outline-none placeholder:text-zinc-400"
+              />;
+              return (
+                <div className="group relative">
+                  <button
+                    type="button"
+                    className={`${row(active)} ${CORE.has(c.name) ? "" : "pr-7"}`}
+                    onClick={() => openChannel(c)}
+                    aria-current={active ? "true" : undefined}
+                    title="Drag, or Alt+Up and Alt+Down, to reorder"
+                  >
+                    <span className="truncate"># {c.name}</span>
+                    {unread.has(c.id) && unreadDot}
+                  </button>
+                  {!CORE.has(c.name) && (
+                    <button
+                      type="button"
+                      aria-label={`Options for ${c.name}`}
+                      data-pop
+                      aria-haspopup="menu"
+                      aria-expanded={menuId === c.id}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => setMenuId((v) => (v === c.id ? null : c.id))}
+                      className={`absolute right-1 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 group-hover:opacity-100 ${
+                        menuId === c.id ? "opacity-100" : "opacity-0"
+                      } ${active ? "text-white hover:bg-zinc-700" : "text-zinc-500 hover:bg-zinc-300"}`}
+                    >
+                      {DOTS}
+                    </button>
+                  )}
+                  {menuId === c.id && (
+                    <div
+                      data-pop
+                      role="menu"
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      className="absolute right-0 top-full z-30 mt-1 w-36 rounded-md border border-zinc-900 bg-white p-1 text-zinc-900"
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="flex h-8 w-full items-center rounded px-2 text-left text-sm hover:bg-zinc-100"
+                        onClick={() => {
+                          setMenuId(null);
+                          setNameText(c.name);
+                          setNaming(c.id);
+                        }}
+                      >
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="flex h-8 w-full items-center rounded px-2 text-left text-sm text-red-700 hover:bg-zinc-100"
+                        onClick={() => {
+                          setMenuId(null);
+                          deleteChannel(c);
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            }}
           />
-
+          {naming === "new" && <div className="mt-px"><input
+                autoFocus
+                value={nameText}
+                maxLength={40}
+                placeholder="untitled"
+                aria-label="Channel name"
+                onPointerDown={(e) => e.stopPropagation()}
+                onChange={(e) => setNameText(e.target.value)}
+                onBlur={() => void commitName()}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") e.currentTarget.blur();
+                  if (e.key === "Escape") {
+                    setNameText("");
+                    setNaming(null);
+                  }
+                }}
+                className="w-full rounded border border-zinc-900 bg-white px-2 py-[3px] text-sm outline-none placeholder:text-zinc-400"
+              /></div>}
         </div>
 
         <div>
@@ -643,36 +854,25 @@ export default function RoomPage() {
             </button>
           </div>
           {agents.map((a) => (
-            <div
-              key={a.id}
-              className="group flex items-center gap-2 rounded px-2 py-1 text-sm text-zinc-700"
-            >
-              <AgentAvatar
-                ownerName={a.ownerName}
-                ownerAvatarUrl={a.ownerAvatarUrl}
-                kind={a.kind}
-                slot={a.slot}
-                size={20}
-              />
+            <div key={a.id} className="group flex items-center gap-2 rounded px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-200/70">
+              <AgentAvatar ownerName={a.ownerName} ownerAvatarUrl={a.ownerAvatarUrl} kind={a.kind} size={20} />
               <span
                 className={`min-w-0 flex-1 pl-1 ${a.online ? "" : "opacity-50"}`}
                 title={a.online ? a.label : `${a.label} (not running)`}
               >
                 <span className="block truncate">{a.short}</span>
-                {a.activeFile && (
-                  <span className="block truncate text-xs text-zinc-500">{a.activeFile}</span>
-                )}
+                {a.activeFile && <span className="block truncate text-xs text-zinc-500">{a.activeFile}</span>}
               </span>
-              {a.online && <span className="h-2 w-2 rounded-full bg-emerald-500" />}
+              {a.online && <span className={`h-2 w-2 rounded-full bg-emerald-500 ${a.mine ? "group-focus-within:hidden group-hover:hidden" : ""}`} />}
               {a.mine && (
                 <button
                   type="button"
-                  className="hidden text-xs text-zinc-500 hover:text-red-600 focus-visible:block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 group-hover:block"
-                  onClick={() => void removeAgent(a.id)}
-                  onBlur={() => setConfirmId(null)}
-                  aria-label="Remove agent"
+                  className="hidden h-5 w-5 place-items-center rounded text-zinc-400 hover:text-red-600 focus-visible:grid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 group-hover:grid"
+                  onClick={() => removeAgent(a)}
+                  aria-label={`Disconnect ${a.label}`}
+                  title="Disconnect"
                 >
-                  {confirmId === a.id ? "Remove?" : "×"}
+                  {TRASH}
                 </button>
               )}
             </div>
@@ -729,9 +929,18 @@ export default function RoomPage() {
           <div className="flex shrink-0 items-center gap-3">
             <div className="flex items-center pl-1.5">
               {shownMembers.map((m) => (
-                <span key={m.userId} title={m.name} className="-ml-1.5 inline-flex rounded-full ring-2 ring-white">
+                <button
+                  key={m.userId}
+                  type="button"
+                  title={m.name}
+                  aria-label={`About ${m.name}`}
+                  onMouseDown={(e) => e.stopPropagation()}
+                      data-pop
+                      onClick={(e) => openCard(m.userId, e.currentTarget)}
+                  className="-ml-1.5 inline-flex rounded-full ring-2 ring-white focus-visible:outline-none focus-visible:ring-zinc-900"
+                >
                   <Avatar name={m.name} avatarUrl={m.avatarUrl} size={24} />
-                </span>
+                </button>
               ))}
               {members.length > 5 && (
                 <span
@@ -768,51 +977,125 @@ export default function RoomPage() {
                 : "No messages yet."}
             </p>
           )}
-          {grouped.map(({ m, collapse }) => (
-            <div key={m.id} className={`flex gap-3 ${collapse ? "mt-0.5" : "mt-3"}`}>
-              <div className="w-8 shrink-0">
-                {!collapse &&
-                  (m.isAgent && agentByLabel.get(m.authorName) ? (
-                    <AgentAvatar
-                      ownerName={agentByLabel.get(m.authorName)!.ownerName}
-                      ownerAvatarUrl={agentByLabel.get(m.authorName)!.ownerAvatarUrl}
-                      kind={agentByLabel.get(m.authorName)!.kind}
-                      slot={agentByLabel.get(m.authorName)!.slot}
-                      size={32}
-                      ring="ring-white"
-                    />
+          {grouped.map(({ m, collapse }) => {
+            const ag = m.isAgent ? agentByLabel.get(m.authorName) : undefined;
+            const who = m.isAgent ? ag?.ownerUserId : m.authorUserId;
+            const own = !m.isAgent && m.authorUserId === me;
+            return (
+              <div key={m.id} className={`group relative -mx-4 flex gap-3 px-4 py-0.5 hover:bg-zinc-50 ${collapse ? "" : "mt-2.5"}`}>
+                <div className="w-8 shrink-0">
+                  {collapse ? (
+                    <span className="hidden pt-0.5 text-right text-[10px] leading-4 text-zinc-400 group-hover:block">{hhmm(m.createdAt)}</span>
                   ) : (
-                    <Avatar
-                      name={m.authorName}
-                      avatarUrl={m.authorAvatarUrl}
-                      agent={m.isAgent}
-                      code={m.isAgent ? agentCode(agentKindByLabel.get(m.authorName)) : undefined}
-                      size={32}
+                    <button
+                      type="button"
+                      aria-label={`About ${m.authorName}`}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      data-pop
+                      onClick={(e) => openCard(who, e.currentTarget)}
+                      className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1"
+                    >
+                      {ag ? (
+                        <AgentAvatar ownerName={ag.ownerName} ownerAvatarUrl={ag.ownerAvatarUrl} kind={ag.kind} size={32} ring="ring-white" />
+                      ) : (
+                        <Avatar
+                          name={m.authorName}
+                          avatarUrl={m.authorAvatarUrl}
+                          agent={m.isAgent}
+                          code={m.isAgent ? agentCode(agentKindByLabel.get(m.authorName)) : undefined}
+                          size={32}
+                        />
+                      )}
+                    </button>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  {!collapse && (
+                    <div className="flex items-baseline gap-2">
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.stopPropagation()}
+                      data-pop
+                      onClick={(e) => openCard(who, e.currentTarget)}
+                        className="rounded text-sm font-semibold text-zinc-900 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
+                      >
+                        {m.authorName}
+                      </button>
+                      {m.isAgent && <span className="text-xs text-zinc-500">agent</span>}
+                      <span className="text-xs text-zinc-400">{hhmm(m.createdAt)}</span>
+                    </div>
+                  )}
+                  {editId === m.id ? (
+                    <div className="mt-1">
+                      <textarea
+                        autoFocus
+                        value={editText}
+                        rows={Math.min(6, editText.split("\n").length)}
+                        aria-label="Edit message"
+                        onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
+                        onChange={(e) => setEditText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            void saveEdit(m);
+                          }
+                          if (e.key === "Escape") setEditId(null);
+                        }}
+                        className="w-full max-w-[72ch] resize-none rounded border border-zinc-900 bg-white px-2 py-1.5 text-sm outline-none"
+                      />
+                      <div className="mt-1 flex gap-2 text-xs">
+                        <button type="button" className="font-semibold text-zinc-900 hover:underline" onClick={() => void saveEdit(m)}>
+                          Save
+                        </button>
+                        <button type="button" className="text-zinc-500 hover:underline" onClick={() => setEditId(null)}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : m.isAgent && (m.type === undefined || m.type === "note") ? (
+                    <AgentNote text={m.text} />
+                  ) : (
+                    <MessageBody
+                      text={m.text}
+                      imageUrl={m.imageUrl}
+                      imageKind={m.imageKind}
+                      alt={m.text || `Picture from ${m.authorName}`}
+                      onLoaded={keepPinned}
+                      mentions={memberNames}
                     />
-                  ))}
-              </div>
-              <div className="min-w-0 flex-1">
-                {!collapse && (
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-sm font-semibold text-zinc-900">{m.authorName}</span>
-                    {m.isAgent && <span className="text-xs text-zinc-500">agent</span>}
-                    <span className="text-xs text-zinc-400">{hhmm(m.createdAt)}</span>
+                  )}
+                  {m.edited && editId !== m.id && <span className="text-[11px] text-zinc-400">edited</span>}
+                </div>
+                {own && editId !== m.id && (
+                  <div className="absolute -top-3 right-4 hidden overflow-hidden rounded border border-zinc-200 bg-white group-focus-within:flex group-hover:flex">
+                    {m.text && (
+                      <button
+                        type="button"
+                        aria-label="Edit message"
+                        title="Edit"
+                        className="grid h-7 w-7 place-items-center text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                        onClick={() => {
+                          setEditText(m.text);
+                          setEditId(m.id);
+                        }}
+                      >
+                        {PENCIL}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      aria-label="Delete message"
+                      title="Delete"
+                      className="grid h-7 w-7 place-items-center text-zinc-500 hover:bg-zinc-100 hover:text-red-600"
+                      onClick={() => deleteMessage(m)}
+                    >
+                      {TRASH}
+                    </button>
                   </div>
                 )}
-                {m.isAgent && (m.type === undefined || m.type === "note") ? (
-                  <AgentNote text={m.text} />
-                ) : (
-                  <MessageBody
-                    text={m.text}
-                    imageUrl={m.imageUrl}
-                    imageKind={m.imageKind}
-                    alt={m.text || `Picture from ${m.authorName}`}
-                    onLoaded={keepPinned}
-                  />
-                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {err && <div className="px-4 pb-1 text-xs text-red-600">{err}</div>}
@@ -852,41 +1135,73 @@ export default function RoomPage() {
               </button>
             </div>
           )}
-          <div className="flex items-end gap-2">
-          <MediaMenu
-            disabled={!current}
-            onFile={attach}
-            onLink={(u) => setText((t) => (t.trim() ? `${t.trimEnd()} ${u}` : u))}
-          />
-          <textarea
-            onPaste={(e) => {
-              const f = Array.from(e.clipboardData.files).find(
-                (x) => x.type.startsWith("image/") || x.type.startsWith("video/")
-              );
-              if (f) {
-                e.preventDefault();
-                attach(f);
-              }
-            }}
+          <Composer
             value={text}
-            disabled={sending || !current}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            rows={2}
-            aria-label="Message"
+            onChange={setText}
+            onSend={() => void send()}
+            onFile={attach}
+            disabled={!current}
+            sending={sending}
             placeholder={current ? `Message ${current.kind === "dm" ? current.title : "#" + current.name}` : ""}
-            className="w-full resize-none rounded border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-zinc-500 disabled:opacity-60"
+            names={memberNames}
           />
-          </div>
         </div>
       </main>
       )}
       </div>
+      {card && cardOf && (
+        <div
+                      data-pop
+          role="dialog"
+          aria-label={cardOf.name}
+          onMouseDown={(e) => e.stopPropagation()}
+          className="fixed z-40 w-60 rounded-md border border-zinc-900 bg-white p-3 text-zinc-900"
+          style={{ left: card.x, top: card.y }}
+        >
+          <div className="flex items-center gap-3">
+            <Avatar name={cardOf.name} avatarUrl={cardOf.avatarUrl} size={32} />
+            <span className="min-w-0 truncate text-[15px] font-semibold">{cardOf.name}</span>
+          </div>
+          {agents.some((a) => a.ownerUserId === cardOf.userId) && (
+            <div className="mt-3 border-t border-zinc-200 pt-2">
+              {agents
+                .filter((a) => a.ownerUserId === cardOf.userId)
+                .map((a) => (
+                  <div key={a.id} className="flex items-center gap-2 py-1 text-sm">
+                    <AgentAvatar ownerName={a.ownerName} ownerAvatarUrl={a.ownerAvatarUrl} kind={a.kind} size={20} ring="ring-white" />
+                    <span className="min-w-0 flex-1 truncate pl-1">{a.activeFile ?? (a.online ? "Running" : "Not running")}</span>
+                    {a.online && <span className="h-2 w-2 rounded-full bg-emerald-500" />}
+                  </div>
+                ))}
+            </div>
+          )}
+          {cardOf.userId !== me && (
+            <button
+              type="button"
+              className="mt-3 inline-flex h-9 w-full items-center justify-center rounded bg-zinc-900 text-sm font-semibold text-white hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1"
+              onClick={() => {
+                setCard(null);
+                void openDm(cardOf.userId);
+              }}
+            >
+              Message
+            </button>
+          )}
+        </div>
+      )}
+      {ask && (
+        <Confirm
+          title={ask.title}
+          body={ask.body}
+          action={ask.action}
+          onCancel={() => setAsk(null)}
+          onConfirm={() => {
+            const run = ask.run;
+            setAsk(null);
+            run();
+          }}
+        />
+      )}
     </div>
   );
 }

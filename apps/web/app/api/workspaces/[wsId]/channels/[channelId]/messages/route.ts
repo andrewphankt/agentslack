@@ -44,7 +44,7 @@ function shape(
   avatars: Map<string, string | null>,
   mimes: Map<string, string>
 ) {
-  const content = m.content as { text?: unknown; imageId?: unknown } | null;
+  const content = m.content as { text?: unknown; imageId?: unknown; editedAt?: unknown } | null;
   const text = content?.text;
   const imageId = content?.imageId;
   return {
@@ -60,6 +60,7 @@ function shape(
     authorAvatarUrl:
       !m.authorAgentId && m.authorUserId ? avatars.get(m.authorUserId) ?? null : null,
     isAgent: !!m.authorAgentId,
+    edited: typeof content?.editedAt === "string",
     type: m.type,
     text: typeof text === "string" ? text : "",
     createdAt: m.createdAt.toISOString(),

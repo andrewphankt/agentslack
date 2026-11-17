@@ -170,13 +170,21 @@ export function MessageBody({
   imageKind,
   alt,
   onLoaded,
+  mentions,
 }: {
   text: string;
   imageUrl?: string | null;
   imageKind?: string;
   alt: string;
   onLoaded: () => void;
+  /** Names that count as a mention when written after an @. */
+  mentions?: string[];
 }) {
+  const mentionRe = useMemo(() => {
+    const list = (mentions ?? []).filter(Boolean).sort((a, b) => b.length - a.length);
+    if (!list.length) return null;
+    return new RegExp(`(@(?:${list.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")}))`, "g");
+  }, [mentions]);
   const pieces = useMemo(() => parts(text), [text]);
   const embedUrls = useMemo(
     () => Array.from(new Set(pieces.flatMap((p) => (p.url ? [p.url] : [])))).slice(0, 3),
@@ -198,7 +206,19 @@ export function MessageBody({
                 {p.text}
               </a>
             ) : (
-              <Fragment key={i}>{p.text}</Fragment>
+              <Fragment key={i}>
+                {mentionRe
+                  ? p.text.split(mentionRe).map((t, k) =>
+                      k % 2 ? (
+                        <span key={k} className="rounded bg-zinc-200 px-1 font-semibold text-zinc-900">
+                          {t}
+                        </span>
+                      ) : (
+                        t
+                      )
+                    )
+                  : p.text}
+              </Fragment>
             )
           )}
         </div>
