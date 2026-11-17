@@ -13,6 +13,10 @@ model Workspace {
   inviteCode String   @unique
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  previewUrl String?
+  liveUrl    String?
+  lastLiveAt DateTime?
+  lastLiveBy String?
 
   members           WorkspaceMember[]
   invites           WorkspaceInvite[]
@@ -22,6 +26,8 @@ model Workspace {
   agentChatThreads  AgentChatThread[]
   scopedSyncTokens  ScopedSyncToken[]
   activities        WorkspaceActivity[]
+  channels          Channel[]
+  agents            Agent[]
 }
 
 model ScopedSyncToken {
@@ -186,10 +192,46 @@ model CollaborationMessage {
   toTarget    String
   content     Json
   createdAt   DateTime @default(now())
+  channelId    String?
+  authorUserId String?
+  authorAgentId String?
 
-  task Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task    Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  channel Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, taskId])
+  @@index([channelId, createdAt])
+}
+
+model Channel {
+  id          String   @id @default(cuid())
+  workspaceId String
+  kind        String   @default("channel") // channel | dm
+  name        String   // channel: slug like "general"; dm: the two userIds sorted and joined with ":"
+  memberIds   String[] @default([])        // dm only: the two userIds
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  messages  CollaborationMessage[]
+  uploads   Upload[]
+
+  @@unique([workspaceId, kind, name])
+  @@index([workspaceId])
+}
+
+/// A picture posted in a channel. Stored in the database for now (max 5 MB each).
+model Upload {
+  id          String   @id @default(cuid())
+  workspaceId String
+  channelId   String
+  userId      String
+  mime        String
+  data        Bytes
+  createdAt   DateTime @default(now())
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([channelId])
 }
 
 model OAuthConnection {
@@ -213,6 +255,7 @@ model User {
   email        String?  @unique
   passwordHash String?
   displayName  String?
+  avatarUrl    String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -296,4 +339,38 @@ model AgentUsageLedger {
 
   @@index([userId, createdAt])
   @@index([workspaceId, createdAt])
+}
+
+model Agent {
+  id          String    @id @default(cuid())
+  workspaceId String
+  ownerUserId String
+  kind        String    // claude | codex | gemini | other
+  name        String    // e.g. "Claude"
+  purpose     String?   // short name the owner gives a second agent, e.g. "website"
+  tokenHash   String    @unique   // sha256 hex of the bearer token
+  lastSeenAt  DateTime?
+  lastPullAt  DateTime?
+  intent       String?
+  lastPromptAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  activity  FileActivity[]
+
+  @@index([workspaceId])
+}
+
+model FileActivity {
+  id          String    @id @default(cuid())
+  workspaceId String
+  agentId     String
+  path        String
+  updatedAt   DateTime  @default(now())
+  warnedAt    DateTime?
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, path])
+  @@index([workspaceId, path])
 }

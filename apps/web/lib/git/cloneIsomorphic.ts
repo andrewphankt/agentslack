@@ -18,6 +18,6 @@ export async function shallowCloneIsomorphic(params: {
     url: params.url,
     singleBranch: true,
     depth: 1,
-    ref: params.branch ?? "main",
+    ...(params.branch ? { ref: params.branch } : {}),
   });
 }
