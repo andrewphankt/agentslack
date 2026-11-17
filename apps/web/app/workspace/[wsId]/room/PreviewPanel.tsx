@@ -94,6 +94,26 @@ function whyNot(d: DraftInfo): string {
 /** The Preview tab: the team's work so far in a browser, with what is new listed underneath. */
 export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLinks, onGoLive }: Props) {
   const [iframeKey, setIframeKey] = useState(0);
+  const [view, setView] = useState<View>("desktop");
+  const [listH, setListH] = useState(190);
+  const dragFrom = useRef<{ y: number; h: number } | null>(null);
+  useEffect(() => {
+    try {
+      const h = Number(localStorage.getItem("as:preview-list"));
+      if (h) setListH(clampH(h));
+      if (localStorage.getItem("as:preview-view") === "phone") setView("phone");
+    } catch {
+      /* private window */
+    }
+  }, []);
+  function pickView(v: View) {
+    setView(v);
+    try {
+      localStorage.setItem("as:preview-view", v);
+    } catch {
+      /* private window */
+    }
+  }
   const [editing, setEditing] = useState(false);
   const [host, setHost] = useState<string | null>(null);
   const [previewIn, setPreviewIn] = useState("");
@@ -173,6 +193,21 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
       <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-zinc-200 px-3.5">
         {lead}
         <h1 className="text-[15px] font-bold">Preview</h1>
+        {previewUrl && !editing && (
+          <div role="group" aria-label="Screen size" className="ml-1 flex gap-0.5 rounded border border-zinc-300 p-0.5">
+            {(["desktop", "phone"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={view === v}
+                onClick={() => pickView(v)}
+                className={`h-6 rounded-sm px-2 text-xs font-semibold ${view === v ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"} ${focus}`}
+              >
+                {v === "desktop" ? "Desktop" : "Phone"}
+              </button>
+            ))}
+          </div>
+        )}
         <span className="flex-1" />
         {previewUrl && !showSetup && (
           <>
@@ -284,7 +319,7 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
             )}
           </div>
         ) : previewUrl ? (
-          <Browser url={previewUrl} reloadKey={iframeKey} />
+          <Browser url={previewUrl} reloadKey={iframeKey} view={view} />
         ) : (
           <button type="button" className={`${ghost} m-auto`} onClick={() => setSkipped(false)}>
             Add a Preview Link
@@ -292,7 +327,43 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
         )}
       </div>
 
-      <section aria-label="New" className="flex h-[190px] shrink-0 flex-col border-t border-zinc-200 bg-white">
+      <section aria-label="New" className="relative flex shrink-0 flex-col border-t border-zinc-200 bg-white" style={{ height: listH }}>
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize the list"
+          aria-valuenow={listH}
+          aria-valuemin={52}
+          aria-valuemax={520}
+          tabIndex={0}
+          title="Drag to resize"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.currentTarget.setPointerCapture(e.pointerId);
+            dragFrom.current = { y: e.clientY, h: listH };
+          }}
+          onPointerMove={(e) => {
+            const d = dragFrom.current;
+            if (d) setListH(clampH(d.h + d.y - e.clientY));
+          }}
+          onPointerUp={() => {
+            dragFrom.current = null;
+            try {
+              localStorage.setItem("as:preview-list", String(listH));
+            } catch {
+              /* private window */
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowUp") setListH((h) => clampH(h + 24));
+            else if (e.key === "ArrowDown") setListH((h) => clampH(h - 24));
+            else return;
+            e.preventDefault();
+          }}
+          className="group/grip absolute inset-x-0 -top-1.5 z-10 flex h-3 cursor-row-resize touch-none items-center justify-center focus-visible:outline-none"
+        >
+          <span className="h-1 w-9 rounded-full bg-zinc-300 group-hover/grip:bg-zinc-900 group-focus-visible/grip:bg-zinc-900" />
+        </div>
         <div className="flex min-h-[52px] shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-zinc-200 px-3.5 py-2">
           {!draft ? null : justLive ? (
             <span className="font-bold" aria-live="polite">
@@ -368,27 +439,22 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
   );
 }
 
-const SIZES = { desktop: { w: 1440, h: 900 }, phone: { w: 390, h: 844 } } as const;
+const clampH = (h: number) => Math.max(52, Math.min(520, Math.round(h)));
+
+// The page inside a 14-inch MacBook Pro browser window, and an iPhone 17 screen, in CSS pixels.
+const SIZES = { desktop: { w: 1512, h: 862 }, phone: { w: 402, h: 874 } } as const;
 type View = keyof typeof SIZES;
 const BAR = 37;
 
 /**
- * The little browser. The page is laid out at a real desktop or phone width and scaled to
- * fit, so it looks the way a visitor sees it. It opens signed out: `credentialless` gives
- * it a fresh, empty session that is thrown away when it closes.
+ * The little browser. The page is laid out at the real size of that screen and the whole
+ * thing is scaled down to fit, so proportions are always true. It opens signed out:
+ * `credentialless` gives it a fresh, empty session that is thrown away when it closes.
  */
-function Browser({ url, reloadKey }: { url: string; reloadKey: number }) {
+function Browser({ url, reloadKey, view }: { url: string; reloadKey: number; view: View }) {
   const box = useRef<HTMLDivElement>(null);
   const [room, setRoom] = useState({ w: 0, h: 0 });
-  const [view, setView] = useState<View>("desktop");
 
-  useEffect(() => {
-    try {
-      if (localStorage.getItem("as:preview-view") === "phone") setView("phone");
-    } catch {
-      /* private window */
-    }
-  }, []);
   useEffect(() => {
     const el = box.current;
     if (!el) return;
@@ -397,49 +463,28 @@ function Browser({ url, reloadKey }: { url: string; reloadKey: number }) {
     return () => ro.disconnect();
   }, []);
 
-  function pick(v: View) {
-    setView(v);
-    try {
-      localStorage.setItem("as:preview-view", v);
-    } catch {
-      /* private window */
-    }
-  }
-
   const size = SIZES[view];
-  const tall = Math.max(room.h - BAR, 0);
-  // Desktop: fixed width, as tall as there is room for. Phone: the whole phone must fit.
-  const scale = room.w ? Math.min(1, room.w / size.w, view === "phone" ? tall / size.h : 1) : 0;
-  const pageH = view === "phone" ? size.h : scale ? tall / scale : 0;
-  const tab = (v: View, label: string) => (
-    <button
-      type="button"
-      aria-pressed={view === v}
-      onClick={() => pick(v)}
-      className={`h-6 rounded-sm px-2 text-xs font-semibold ${view === v ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"} ${focus}`}
-    >
-      {label}
-    </button>
-  );
+  const phone = view === "phone";
+  // The desktop keeps its browser bar, which is not scaled; the phone is all screen.
+  const bar = phone ? 0 : BAR;
+  const scale = room.w ? Math.min(1, room.w / size.w, Math.max(room.h - bar - 2, 0) / size.h) : 0;
 
   return (
-    <div ref={box} className="flex min-h-0 min-w-0 flex-1 items-start justify-center">
+    <div ref={box} className="flex min-h-0 min-w-0 flex-1 items-center justify-center">
       {scale > 0 && (
         <div
-          className="flex flex-col overflow-hidden rounded border border-zinc-300 bg-white shadow-[0_34px_70px_-24px_rgba(0,0,0,0.30),0_10px_24px_-10px_rgba(0,0,0,0.14)]"
-          style={{ width: Math.max(size.w * scale, 200) }}
+          className="flex shrink-0 flex-col overflow-hidden border border-zinc-300 bg-white shadow-[0_34px_70px_-24px_rgba(0,0,0,0.30),0_10px_24px_-10px_rgba(0,0,0,0.14)]"
+          style={{ width: size.w * scale + 2, borderRadius: phone ? 44 * scale : 4 }}
         >
-          <div className="flex shrink-0 items-center gap-1.5 border-b border-zinc-200 px-3" style={{ height: BAR - 1 }}>
-            <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
-            <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
-            <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
-            <span className={`ml-2 min-w-0 flex-1 truncate text-xs text-zinc-500 ${view === "phone" ? "invisible" : ""}`}>{url.replace(/^https?:\/\//, "")}</span>
-            <div role="group" aria-label="Screen size" className="flex shrink-0 gap-0.5">
-              {tab("desktop", "Desktop")}
-              {tab("phone", "Phone")}
+          {!phone && (
+            <div className="flex shrink-0 items-center gap-1.5 border-b border-zinc-200 px-3" style={{ height: BAR }}>
+              <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
+              <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
+              <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
+              <span className="ml-2 min-w-0 flex-1 truncate text-xs text-zinc-500">{url.replace(/^https?:\/\//, "")}</span>
             </div>
-          </div>
-          <div className="mx-auto overflow-hidden" style={{ width: size.w * scale, height: pageH * scale }}>
+          )}
+          <div className="overflow-hidden" style={{ width: size.w * scale, height: size.h * scale }}>
             <iframe
               key={`${reloadKey}-${view}`}
               src={url}
@@ -447,7 +492,7 @@ function Browser({ url, reloadKey }: { url: string; reloadKey: number }) {
               sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
               {...{ credentialless: "" }}
               className="border-0 bg-white"
-              style={{ width: size.w, height: pageH, transform: `scale(${scale})`, transformOrigin: "0 0" }}
+              style={{ width: size.w, height: size.h, transform: `scale(${scale})`, transformOrigin: "0 0" }}
             />
           </div>
         </div>
