@@ -32,6 +32,14 @@ type Msg = {
   type?: string;
   createdAt: string;
 };
+function dayLabel(iso: string) {
+  const d = new Date(iso);
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86_400_000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+}
+
 type AgentRow = {
   id: string;
   name: string;
@@ -447,7 +455,7 @@ export default function RoomPage() {
   // Auto-scroll.
   useEffect(() => {
     const el = listRef.current;
-    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+    if (el && stickRef.current) el.scrollTop = el.dataset.feed ? 0 : el.scrollHeight;
   }, [messages, current]);
 
   /** Enter or a click away: a new channel is made (named "untitled" if left empty), or the rename is saved. */
@@ -521,11 +529,23 @@ export default function RoomPage() {
     cardTimer.current = null;
   };
   /** Resting on a picture opens the card; leaving the picture and the card closes it. */
+  // A click pins the card: it stays until a click elsewhere. Hovering never moves a pinned card.
+  const cardPinned = useRef(false);
+  useEffect(() => {
+    if (!card) cardPinned.current = false;
+  }, [card]);
+  function pinCard(userId: string | null | undefined, el: HTMLElement) {
+    stopCardTimer();
+    cardPinned.current = true;
+    openCard(userId, el);
+  }
   function hoverCard(userId: string | null | undefined, el: HTMLElement) {
+    if (cardPinned.current) return;
     stopCardTimer();
     cardTimer.current = setTimeout(() => openCard(userId, el), 350);
   }
   function leaveCard() {
+    if (cardPinned.current) return;
     stopCardTimer();
     cardTimer.current = setTimeout(() => setCard(null), 180);
   }
@@ -620,21 +640,27 @@ export default function RoomPage() {
     }
   }
 
-  const grouped = useMemo(
-    () =>
-      messages.map((m, i) => {
-        const prev = messages[i - 1];
-        const collapse =
-          !!prev &&
-          !m.isAgent &&
-          !prev.isAgent &&
-          prev.authorUserId === m.authorUserId &&
-          prev.authorName === m.authorName &&
-          new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000;
-        return { m, collapse };
-      }),
-    [messages]
-  );
+  const isFeed = current?.kind === "channel" && FEEDS.has(current.name);
+  type Shown = { sep: string; m?: undefined; collapse?: undefined } | { sep?: undefined; m: Msg; collapse: boolean };
+  const grouped = useMemo<Shown[]>(() => {
+    const list = isFeed ? [...messages].reverse() : messages;
+    const out: Shown[] = [];
+    list.forEach((m, i) => {
+      const prev = list[i - 1];
+      const gap = prev ? Math.abs(new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) : 0;
+      const sameWho = !!prev && prev.isAgent === m.isAgent && prev.authorUserId === m.authorUserId && prev.authorName === m.authorName;
+      if (isFeed) {
+        const day = dayLabel(m.createdAt);
+        const newDay = !prev || dayLabel(prev.createdAt) !== day;
+        if (newDay) out.push({ sep: day });
+        // One person's run of changes reads as one group.
+        out.push({ m, collapse: !newDay && sameWho && gap < 30 * 60_000 });
+      } else {
+        out.push({ m, collapse: sameWho && !m.isAgent && gap < 5 * 60_000 });
+      }
+    });
+    return out;
+  }, [messages, isFeed]);
 
   const agentKindByLabel = useMemo(
     () => new Map(agents.map((a) => [a.label, a.kind])),
@@ -649,8 +675,16 @@ export default function RoomPage() {
 
   const keepPinned = useCallback(() => {
     const el = listRef.current;
-    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+    if (el && stickRef.current) el.scrollTop = el.dataset.feed ? 0 : el.scrollHeight;
   }, []);
+
+  const gifSearch = useCallback(
+    async (q: string) => {
+      const r = await api(`/gifs?q=${encodeURIComponent(q)}`);
+      return r.ok ? ((await r.json()) as { on: boolean; items: { thumb: string; url: string; title: string }[] }) : { on: false, items: [] };
+    },
+    [api]
+  );
 
   const dmByUser = useMemo(() => {
     const map = new Map<string, Channel>();
@@ -667,6 +701,8 @@ export default function RoomPage() {
     "rounded px-1 text-base leading-none text-zinc-500 hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900";
   const unreadDot = <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-500" />;
   const feed = current?.kind === "channel" && FEEDS.has(current.name);
+  const working = agents.filter((a) => a.online && a.activeFile);
+  const dockOpen = working.length > 0 && current?.kind === "channel" && !feed;
   const others = members.filter((m) => m.userId !== me);
   const shownMembers = others.slice(0, 5);
   const mine = members.find((m) => m.userId === me);
@@ -721,7 +757,7 @@ export default function RoomPage() {
           }}
         >
           <span className="flex min-w-0 items-center gap-2">
-            <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <svg viewBox="0 0 24 24" className="mx-0.5 h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <rect x="3" y="4" width="18" height="13" rx="1.5" />
               <path d="M8 21h8M12 17v4" />
             </svg>
@@ -736,7 +772,7 @@ export default function RoomPage() {
           return (
             <button key={name} type="button" className={row(active)} aria-current={active ? "true" : undefined} onClick={() => openChannel(c)}>
               <span className="flex min-w-0 items-center gap-2">
-                <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <svg viewBox="0 0 24 24" className="mx-0.5 h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                   {name === "updates" ? <path d="M5 21V4h11l-1.5 4L16 12H5" /> : <path d="M12 7v5l3 2M21 12a9 9 0 1 1-3-6.7M21 4v4h-4" />}
                 </svg>
                 <span className="truncate">{name === "updates" ? "Updates" : "Changes"}</span>
@@ -769,8 +805,8 @@ export default function RoomPage() {
             renderItem={(c) => {
               const active = !previewOpen && current?.id === c.id;
               if (naming === c.id) return (
-                <div className={`flex w-full items-center gap-1 rounded px-2 py-1 text-sm ${active ? "bg-zinc-900 text-white" : "text-zinc-700"}`}>
-                <span aria-hidden>#</span>
+                <div className={`flex w-full items-center gap-2 rounded px-2 py-1 text-sm ${active ? "bg-zinc-900 text-white" : "text-zinc-700"}`}>
+                <span aria-hidden className="w-5 shrink-0 text-center opacity-60">#</span>
                 <input
                   autoFocus
                   value={nameText}
@@ -802,7 +838,7 @@ export default function RoomPage() {
                     aria-current={active ? "true" : undefined}
                     title="Drag, or Alt+Up and Alt+Down, to reorder"
                   >
-                    <span className="truncate"># {c.name}</span>
+                    <span className="flex min-w-0 items-center gap-2"><span aria-hidden className="w-5 shrink-0 text-center opacity-60">#</span><span className="truncate">{c.name}</span></span>
                     {unread.has(c.id) && unreadDot}
                   </button>
                   {!CORE.has(c.name) && (
@@ -860,8 +896,8 @@ export default function RoomPage() {
             }}
           />
           {naming === "new" && (
-            <div className={`flex w-full items-center gap-1 rounded px-2 py-1 text-sm ${false ? "bg-zinc-900 text-white" : "text-zinc-700"}`}>
-                <span aria-hidden>#</span>
+            <div className={`flex w-full items-center gap-2 rounded px-2 py-1 text-sm ${false ? "bg-zinc-900 text-white" : "text-zinc-700"}`}>
+                <span aria-hidden className="w-5 shrink-0 text-center opacity-60">#</span>
                 <input
                   autoFocus
                   value={nameText}
@@ -925,7 +961,7 @@ export default function RoomPage() {
             <div key={a.id} className="group flex items-center gap-2 rounded px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-200/70">
               <AgentAvatar ownerName={a.ownerName} ownerAvatarUrl={a.ownerAvatarUrl} kind={a.kind} size={20} />
               <span
-                className={`min-w-0 flex-1 pl-1 ${a.online ? "" : "opacity-50"}`}
+                className={`min-w-0 flex-1 ${a.online ? "" : "opacity-50"}`}
                 title={a.online ? a.label : `${a.label} (not running)`}
               >
                 <span className="block truncate">{a.short}</span>
@@ -983,6 +1019,7 @@ export default function RoomPage() {
           onGoLive={goLive}
         />
       ) : (
+      <>
       <main
         className="flex min-w-0 flex-1 flex-col bg-white text-zinc-900"
         style={{ colorScheme: "light" }}
@@ -1004,7 +1041,7 @@ export default function RoomPage() {
                   aria-label={`About ${m.name}`}
                   onMouseDown={(e) => e.stopPropagation()}
                       data-pop
-                      onClick={(e) => openCard(m.userId, e.currentTarget)}
+                      onClick={(e) => pinCard(m.userId, e.currentTarget)}
                       onMouseEnter={(e) => hoverCard(m.userId, e.currentTarget)}
                       onMouseLeave={leaveCard}
                   className="-ml-1.5 inline-flex rounded-full ring-2 ring-white focus-visible:outline-none focus-visible:ring-zinc-900"
@@ -1042,9 +1079,10 @@ export default function RoomPage() {
 
         <div
           ref={listRef}
+          data-feed={feed ? "1" : undefined}
           onScroll={(e) => {
             const el = e.currentTarget;
-            stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+            stickRef.current = el.dataset.feed ? el.scrollTop < 80 : el.scrollHeight - el.scrollTop - el.clientHeight < 80;
           }}
           className="flex-1 overflow-y-auto px-4 py-3"
         >
@@ -1057,12 +1095,20 @@ export default function RoomPage() {
                   : "No messages yet."}
             </p>
           )}
-          {grouped.map(({ m, collapse }) => {
+          {grouped.map((g) => {
+            if (g.sep !== undefined)
+              return (
+                <div key={`day-${g.sep}`} className="mt-6 flex items-center gap-3 first:mt-0">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{g.sep}</span>
+                  <span className="h-px flex-1 bg-zinc-200" />
+                </div>
+              );
+            const { m, collapse } = g;
             const ag = m.isAgent ? agentByLabel.get(m.authorName) : undefined;
             const who = m.isAgent ? ag?.ownerUserId : m.authorUserId;
             const own = !m.isAgent && m.authorUserId === me;
             return (
-              <div key={m.id} className={`group relative -mx-4 flex gap-3 px-4 py-0.5 hover:bg-zinc-50 ${collapse ? "" : "mt-2.5"}`}>
+              <div key={m.id} className={`group relative -mx-4 flex gap-3 px-4 py-0.5 hover:bg-zinc-50 ${collapse ? (feed ? "mt-1.5" : "") : feed ? "mt-4" : "mt-2.5"}`}>
                 <div className="w-8 shrink-0">
                   {collapse ? (
                     <span className="hidden pt-0.5 text-right text-[10px] leading-4 text-zinc-400 group-hover:block">{hhmm(m.createdAt)}</span>
@@ -1072,7 +1118,7 @@ export default function RoomPage() {
                       aria-label={`About ${m.authorName}`}
                       onMouseDown={(e) => e.stopPropagation()}
                       data-pop
-                      onClick={(e) => openCard(who, e.currentTarget)}
+                      onClick={(e) => pinCard(who, e.currentTarget)}
                       onMouseEnter={(e) => hoverCard(who, e.currentTarget)}
                       onMouseLeave={leaveCard}
                       className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1"
@@ -1098,7 +1144,7 @@ export default function RoomPage() {
                         type="button"
                         onMouseDown={(e) => e.stopPropagation()}
                       data-pop
-                      onClick={(e) => openCard(who, e.currentTarget)}
+                      onClick={(e) => pinCard(who, e.currentTarget)}
                       onMouseEnter={(e) => hoverCard(who, e.currentTarget)}
                       onMouseLeave={leaveCard}
                         className="rounded text-sm font-semibold text-zinc-900 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
@@ -1238,10 +1284,32 @@ export default function RoomPage() {
             placeholder={current ? `Message ${current.kind === "dm" ? current.title : "#" + current.name}` : ""}
             names={memberNames}
             agent={myAgent}
+            gifSearch={gifSearch}
           />
         </div>
         )}
       </main>
+      <aside
+        aria-label="Working now"
+        aria-hidden={!dockOpen}
+        className="hidden shrink-0 overflow-hidden bg-white text-zinc-900 md:block"
+        style={{ width: dockOpen ? 240 : 0, transition: "width 0.32s cubic-bezier(0.22, 1, 0.36, 1)" }}
+      >
+        <div className="h-full w-60 border-l border-zinc-200 p-3">
+          <div className={`mb-2 px-1 ${heading}`}>Working now</div>
+          {working.map((a) => (
+            <div key={a.id} className="soft-in flex items-center gap-3 border-t border-zinc-200 px-1 py-2 text-sm">
+              <AgentAvatar ownerName={a.ownerName} ownerAvatarUrl={a.ownerAvatarUrl} kind={a.kind} size={20} ring="ring-white" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-semibold">{a.activeFile}</span>
+                <span className="block truncate text-xs text-zinc-500">{a.ownerName}</span>
+              </span>
+              <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+            </div>
+          ))}
+        </div>
+      </aside>
+      </>
       )}
       </div>
       {card && cardOf && (

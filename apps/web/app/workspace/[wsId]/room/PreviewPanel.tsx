@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Avatar } from "./Avatar";
 import { LOGO } from "./logos";
 
@@ -120,7 +120,6 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
   );
 
   const [holdRaw, setHoldRaw] = useState(0);
-  const listRef = useRef<HTMLUListElement>(null);
   const ahead = draft?.status?.state === "ready" ? draft.status.ahead : 0;
   // "Not Yet" lasts until something new arrives.
   useEffect(() => {
@@ -132,31 +131,10 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
   const showSetup = !!draft && (editing || (!previewUrl && !skipped));
   const canGo = ahead > 0 && !!draft?.connected && !running;
   const rows = (draft?.status?.changes ?? []).filter((c) => !/^Merge /.test(c.message));
-  // The line: rows above it (newer) wait, rows below it are published. It can only sit
-  // above a row whose saved point is known.
+  // Ticks: publishing goes up to a point in time, so unticking a row also unticks everything
+  // newer, and ticking one ticks everything older. `hold` counts the newest rows left for later.
   const maxHold = rows.length > 1 && rows.every((c) => c.sha) ? rows.length - 1 : 0;
   const hold = Math.min(holdRaw, maxHold);
-  function dragLine(e: React.PointerEvent<HTMLElement>) {
-    if (!maxHold) return;
-    e.preventDefault();
-    const list = listRef.current;
-    if (!list) return;
-    const move = (ev: PointerEvent) => {
-      const items = Array.from(list.querySelectorAll<HTMLElement>("[data-row]"));
-      let n = 0;
-      for (const el of items) {
-        const r = el.getBoundingClientRect();
-        if (ev.clientY > r.top + r.height / 2) n++;
-      }
-      setHoldRaw(Math.min(n, maxHold));
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  }
 
   function startEdit() {
     setPreviewIn(draft?.previewUrl ?? "");
@@ -356,49 +334,33 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
             </>
           )}
         </div>
-        <ul ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
+        <ul className="min-h-0 flex-1 overflow-y-auto">
           {rows.map((c, i) => (
-            <Fragment key={i}>
-              {i === hold && maxHold > 0 && (
-                <li
-                  role="slider"
-                  tabIndex={0}
-                  aria-label="Publish up to here"
-                  aria-orientation="vertical"
-                  aria-valuemin={0}
-                  aria-valuemax={maxHold}
-                  aria-valuenow={hold}
-                  aria-valuetext={`${rows.length - hold} of ${rows.length} will be published`}
-                  onPointerDown={dragLine}
-                  onKeyDown={(e) => {
-                    if (e.key === "ArrowDown") setHoldRaw(Math.min(hold + 1, maxHold));
-                    else if (e.key === "ArrowUp") setHoldRaw(Math.max(hold - 1, 0));
-                    else return;
-                    e.preventDefault();
-                  }}
-                  className="group/line relative flex h-3 cursor-row-resize touch-none select-none items-center focus-visible:outline-none"
-                  title="Drag down to publish less"
-                >
-                  <span className="h-0.5 flex-1 bg-zinc-900" />
-                  <span className="absolute left-1/2 flex h-3 w-9 -translate-x-1/2 items-center justify-center gap-0.5 rounded-sm bg-zinc-900 group-focus-visible/line:ring-2 group-focus-visible/line:ring-zinc-900 group-focus-visible/line:ring-offset-1">
-                    <span className="h-0.5 w-0.5 rounded-full bg-white" />
-                    <span className="h-0.5 w-0.5 rounded-full bg-white" />
-                    <span className="h-0.5 w-0.5 rounded-full bg-white" />
+              <li key={i} className={`flex min-h-9 items-center gap-3 px-3.5 text-sm ${i ? "border-t border-zinc-200" : ""}`}>
+                {maxHold > 0 && (
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={i >= hold}
+                    aria-label={`Publish: ${c.message || "Saved work"}`}
+                    title={i >= hold ? "Leave this and anything newer for later" : "Publish this and everything before it"}
+                    onClick={() => setHoldRaw(i >= hold ? Math.min(i + 1, maxHold) : i)}
+                    className={`grid h-4 w-4 shrink-0 place-items-center rounded-sm border ${i >= hold ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-400 bg-white text-transparent hover:border-zinc-900"} ${focus}`}
+                  >
+                    <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M5 12.5l4.5 4.5L19 7.5" />
+                    </svg>
+                  </button>
+                )}
+                <span className={`flex min-w-0 flex-1 items-center gap-3 ${i < hold ? "opacity-40" : ""}`} style={{ transition: "opacity 0.15s" }}>
+                  <Avatar name={c.who} avatarUrl={avatars.get(c.who)} size={20} />
+                  <span className="min-w-0 flex-1 truncate font-semibold" title={c.message}>
+                    {c.message === "Saved turn" || !c.message ? "Saved work" : c.message}
                   </span>
-                </li>
-              )}
-              <li
-                data-row
-                className={`flex min-h-9 items-center gap-3 px-3.5 text-sm ${i && i !== hold ? "border-t border-zinc-200" : ""} ${i < hold ? "opacity-40" : ""}`}
-              >
-                <Avatar name={c.who} avatarUrl={avatars.get(c.who)} size={20} />
-                <span className="min-w-0 flex-1 truncate font-semibold" title={c.message}>
-                  {c.message === "Saved turn" || !c.message ? "Saved work" : c.message}
+                  <span className="w-28 shrink-0 truncate text-[13px] text-zinc-500">{i < hold ? "Later" : c.who}</span>
+                  <span className="w-10 shrink-0 text-right text-[13px] text-zinc-500">{ago(c.at)}</span>
                 </span>
-                <span className="w-28 shrink-0 truncate text-[13px] text-zinc-500">{i < hold ? "Waits" : c.who}</span>
-                <span className="w-10 shrink-0 text-right text-[13px] text-zinc-500">{ago(c.at)}</span>
               </li>
-            </Fragment>
           ))}
         </ul>
       </section>

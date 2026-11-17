@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { kindFromUrl } from "@/lib/embeds";
 import { LOGO } from "./logos";
 
+type Gif = { thumb: string; url: string; title: string };
+
 const iconBtn =
   "grid h-9 w-9 shrink-0 place-items-center rounded text-zinc-600 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 disabled:opacity-60";
 
@@ -21,6 +23,7 @@ export function Composer({
   placeholder,
   names,
   agent,
+  gifSearch,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -33,6 +36,8 @@ export function Composer({
   names: string[];
   /** Your own agent's name: adds a button that starts a message to it. */
   agent?: string | null;
+  /** Searches GIFs. `on: false` means search is not set up, so the box takes a link. */
+  gifSearch?: (q: string) => Promise<{ on: boolean; items: Gif[] }>;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -43,6 +48,34 @@ export function Composer({
   const [gifOpen, setGifOpen] = useState(false);
   const [gif, setGif] = useState("");
   const [gifBad, setGifBad] = useState(false);
+  const [gifOn, setGifOn] = useState(false);
+  const [gifs, setGifs] = useState<Gif[]>([]);
+
+  useEffect(() => {
+    if (!gifOpen || !gifSearch) return;
+    let dead = false;
+    const t = setTimeout(() => {
+      gifSearch(/^https?:/i.test(gif) ? "" : gif.trim())
+        .then((r) => {
+          if (dead) return;
+          setGifOn(r.on);
+          setGifs(r.items);
+        })
+        .catch(() => undefined);
+    }, 250);
+    return () => {
+      dead = true;
+      clearTimeout(t);
+    };
+  }, [gifOpen, gif, gifSearch]);
+
+  function put(url: string) {
+    onChange(value.trim() ? `${value.trimEnd()} ${url}` : url);
+    setGif("");
+    setGifBad(false);
+    setGifOpen(false);
+    requestAnimationFrame(() => ref.current?.focus());
+  }
 
   // Grow with the text, up to about seven lines.
   useEffect(() => {
@@ -92,6 +125,7 @@ export function Composer({
 
   function addGif() {
     const v = gif.trim();
+    if (gifOn && !/^https?:\/\//i.test(v)) return;
     if (!/^https?:\/\//i.test(v) || !(kindFromUrl(v) === "gif" || /tenor\.com|giphy\.com/i.test(v))) return setGifBad(true);
     onChange(value.trim() ? `${value.trimEnd()} ${v}` : v);
     setGif("");
@@ -219,12 +253,12 @@ export function Composer({
             GIF
           </button>
           {gifOpen && (
-            <div role="dialog" aria-label="Add a GIF" className="pop-in absolute bottom-full right-0 z-20 mb-2 w-72 rounded-md border border-zinc-900 bg-white p-2">
+            <div role="dialog" aria-label="Add a GIF" className="pop-in absolute bottom-full right-0 z-20 mb-2 w-80 rounded-md border border-zinc-900 bg-white p-2">
               <input
                 autoFocus
                 value={gif}
-                placeholder="Paste a GIF link"
-                aria-label="GIF link"
+                placeholder={gifOn ? "Search GIFs" : "Paste a GIF link"}
+                aria-label={gifOn ? "Search GIFs" : "GIF link"}
                 aria-invalid={gifBad}
                 onChange={(e) => {
                   setGif(e.target.value);
@@ -238,6 +272,26 @@ export function Composer({
                 }}
                 className="h-9 w-full rounded border border-zinc-300 px-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-zinc-900"
               />
+              {gifOn && (
+                <>
+                  <div className="mt-2 grid max-h-64 grid-cols-3 gap-1 overflow-y-auto">
+                    {gifs.map((g) => (
+                      <button
+                        key={g.url}
+                        type="button"
+                        aria-label={g.title}
+                        onClick={() => put(g.url)}
+                        className="aspect-[4/3] overflow-hidden rounded-sm bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={g.thumb} alt="" loading="lazy" className="h-full w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                  {gifs.length === 0 && <p className="py-3 text-center text-xs text-zinc-500">Nothing found</p>}
+                  <p className="mt-1.5 text-[10px] uppercase tracking-wide text-zinc-400">Powered by GIPHY</p>
+                </>
+              )}
               {gifBad && (
                 <p role="alert" className="mt-1 text-xs text-red-600">
                   That is not a GIF link
