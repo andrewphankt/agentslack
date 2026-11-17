@@ -29,7 +29,10 @@ type Props = {
   /** Right of the top bar: the person's picture menu. */
   trail?: ReactNode;
   avatars: Map<string, string | null>;
-  onSaveLinks: (patch: { previewUrl?: string; liveUrl?: string }) => Promise<string | null>;
+  onSaveLinks: (patch: {
+    previewUrl?: string;
+    liveUrl?: string;
+  }) => Promise<string | null>;
   onGoLive: (upTo?: string) => Promise<string | null>;
   /** Your own agent's name, if you have one in the room. */
   agent?: string | null;
@@ -37,7 +40,8 @@ type Props = {
   onAskAgent: (host: string) => Promise<string | null>;
 };
 
-const focus = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1";
+const focus =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1";
 const ghost = `inline-flex h-9 items-center justify-center rounded border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-50 ${focus}`;
 const solid = `inline-flex h-9 items-center justify-center rounded bg-zinc-900 px-4 text-sm font-semibold text-white hover:bg-zinc-700 disabled:opacity-40 ${focus}`;
 const iconBtn = `grid h-8 w-8 place-items-center rounded border border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 disabled:opacity-40 ${focus}`;
@@ -92,12 +96,23 @@ function whyNot(d: DraftInfo): string {
   if (!d.connected) return "Sign in with GitHub to publish";
   const s = d.status;
   if (!s || s.state === "no-draft") return "Nothing saved yet";
-  if (s.state === "no-access") return "Your GitHub account cannot see this project";
+  if (s.state === "no-access")
+    return "Your GitHub account cannot see this project";
   return "Everything is public";
 }
 
 /** The Preview tab: the team's work so far in a browser, with what is new listed underneath. */
-export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLinks, onGoLive, agent, onAskAgent }: Props) {
+export function PreviewPanel({
+  draft,
+  reloadKey,
+  lead,
+  trail,
+  avatars,
+  onSaveLinks,
+  onGoLive,
+  agent,
+  onAskAgent,
+}: Props) {
   const [iframeKey, setIframeKey] = useState(0);
   const [view, setView] = useState<View>("desktop");
   const [listH, setListH] = useState(190);
@@ -133,7 +148,11 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
   const [sure, setSure] = useState(false);
   const [copied, setCopied] = useState(false);
   const [asked, setAsked] = useState(false);
-  useEffect(() => setAsked(false), [host]);
+  const [manual, setManual] = useState(false);
+  useEffect(() => {
+    setAsked(false);
+    setManual(false);
+  }, [host]);
   const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Parent bumps reloadKey after a change reaches the room.
@@ -145,7 +164,7 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
     () => () => {
       if (liveTimer.current) clearTimeout(liveTimer.current);
     },
-    []
+    [],
   );
 
   const [holdRaw, setHoldRaw] = useState(0);
@@ -159,10 +178,13 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
   const previewUrl = draft?.previewUrl ?? null;
   const showSetup = !!draft && (editing || (!previewUrl && !skipped));
   const canGo = ahead > 0 && !!draft?.connected && !running;
-  const rows = (draft?.status?.changes ?? []).filter((c) => !/^Merge /.test(c.message));
+  const rows = (draft?.status?.changes ?? []).filter(
+    (c) => !/^Merge /.test(c.message),
+  );
   // Ticks: publishing goes up to a point in time, so unticking a row also unticks everything
   // newer, and ticking one ticks everything older. `hold` counts the newest rows left for later.
-  const maxHold = rows.length > 1 && rows.every((c) => c.sha) ? rows.length - 1 : 0;
+  const maxHold =
+    rows.length > 1 && rows.every((c) => c.sha) ? rows.length - 1 : 0;
   const hold = Math.min(holdRaw, maxHold);
 
   function startEdit() {
@@ -176,8 +198,11 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
   async function save() {
     setSaving(true);
     setLinkErr(null);
-    const patch: { previewUrl?: string; liveUrl?: string } = { previewUrl: previewIn.trim() };
-    if (editing || liveIn.trim() || draft?.liveUrl) patch.liveUrl = liveIn.trim();
+    const patch: { previewUrl?: string; liveUrl?: string } = {
+      previewUrl: previewIn.trim(),
+    };
+    if (editing || liveIn.trim() || draft?.liveUrl)
+      patch.liveUrl = liveIn.trim();
     const err = await onSaveLinks(patch);
     setSaving(false);
     if (err) return setLinkErr(err);
@@ -210,14 +235,22 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
   }
 
   const picked = HOSTS.find((h) => h.key === host);
+  const canAgent = !!picked && !!setupPrompt(picked.key);
 
   return (
-    <main className="flex min-w-0 flex-1 flex-col bg-white text-zinc-900" style={{ colorScheme: "light" }}>
+    <main
+      className="flex min-w-0 flex-1 flex-col bg-white text-zinc-900"
+      style={{ colorScheme: "light" }}
+    >
       <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-zinc-200 px-3.5">
         {lead}
         <h1 className="text-[15px] font-bold">Preview</h1>
         {previewUrl && !editing && (
-          <div role="group" aria-label="Screen size" className="ml-1 flex gap-0.5 rounded border border-zinc-300 p-0.5">
+          <div
+            role="group"
+            aria-label="Screen size"
+            className="ml-1 flex gap-0.5 rounded border border-zinc-300 p-0.5"
+          >
             {(["desktop", "phone"] as const).map((v) => (
               <button
                 key={v}
@@ -234,19 +267,65 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
         <span className="flex-1" />
         {previewUrl && !showSetup && (
           <>
-            <button type="button" className={iconBtn} aria-label="Refresh" title="Refresh" onClick={() => setIframeKey((k) => k + 1)}>
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <button
+              type="button"
+              className={iconBtn}
+              aria-label="Refresh"
+              title="Refresh"
+              onClick={() => setIframeKey((k) => k + 1)}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M20 11a8 8 0 1 0-2.3 6.3" />
                 <path d="M20 4v7h-7" />
               </svg>
             </button>
-            <a href={previewUrl} target="_blank" rel="noopener noreferrer" className={iconBtn} aria-label="Open in a new tab" title="Open in a new tab">
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <a
+              href={previewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={iconBtn}
+              aria-label="Open in a new tab"
+              title="Open in a new tab"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
               </svg>
             </a>
-            <button type="button" className={iconBtn} aria-label="Change link" title="Change link" onClick={startEdit}>
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <button
+              type="button"
+              className={iconBtn}
+              aria-label="Change link"
+              title="Change link"
+              onClick={startEdit}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
               </svg>
             </button>
@@ -255,14 +334,19 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
         {trail}
       </header>
 
-      <div className="flex min-h-0 flex-1 p-4 sm:px-7 sm:py-5" style={MESH}>
+      <div
+        className="flex min-h-0 flex-1 overflow-y-auto p-4 sm:px-7 sm:py-5"
+        style={MESH}
+      >
         {!draft ? (
           <p className="m-auto text-sm text-zinc-500">Loading…</p>
         ) : showSetup ? (
           <div className="m-auto flex w-full max-w-[620px] flex-col items-center gap-7">
-            <h2 className="text-center text-[28px] font-bold tracking-tight">Where does it run?</h2>
             {!host ? (
               <>
+                <h2 className="text-center text-[28px] font-bold tracking-tight">
+                  Where does it run?
+                </h2>
                 <div className="grid w-full grid-cols-2 gap-3.5 sm:grid-cols-4">
                   {HOSTS.map((h) => (
                     <button
@@ -271,15 +355,26 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
                       onClick={() => setHost(h.key)}
                       className={`flex aspect-square flex-col items-center justify-center gap-3.5 rounded-md border border-zinc-200 bg-white hover:border-zinc-900 ${focus}`}
                     >
-                      <svg viewBox="0 0 24 24" className="h-11 w-11" fill="currentColor" aria-hidden>
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="h-11 w-11"
+                        fill="currentColor"
+                        aria-hidden
+                      >
                         {h.icon}
                       </svg>
-                      <span className="text-[15px] font-semibold">{h.name}</span>
+                      <span className="text-[15px] font-semibold">
+                        {h.name}
+                      </span>
                     </button>
                   ))}
                 </div>
                 <div className="flex gap-2.5">
-                  <button type="button" className={ghost} onClick={() => setHost("other")}>
+                  <button
+                    type="button"
+                    className={ghost}
+                    onClick={() => setHost("other")}
+                  >
                     Paste a Link
                   </button>
                   <button
@@ -295,103 +390,165 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
                 </div>
               </>
             ) : (
-              <div className="w-full max-w-md rounded-md border border-zinc-200 bg-white p-4">
-                {picked && setupPrompt(picked.key) && (
-                  <div className="mb-4 border-b border-zinc-200 pb-4">
-                    <p className="text-sm font-semibold">Let your agent set it up</p>
-                    {asked ? (
-                      <p role="status" className="mt-1 text-sm text-zinc-700">
-                        Sent to {agent}. Say anything to it, even just <span className="font-semibold">go</span>, and it starts. The preview shows up here by itself.
+              <div className="w-full max-w-[440px] rounded-md border border-zinc-200 bg-white">
+                {picked && (
+                  <div className="flex items-center gap-3 border-b border-zinc-200 px-5 py-4">
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-7 w-7 shrink-0"
+                      fill="currentColor"
+                      aria-hidden
+                    >
+                      {picked.icon}
+                    </svg>
+                    <div className="min-w-0">
+                      <h2 className="text-base font-bold leading-tight">
+                        {picked.name}
+                      </h2>
+                      <p className="text-xs text-zinc-500">
+                        A preview on its own link. Your public site stays as it
+                        is.
                       </p>
-                    ) : (
-                      <p className="mt-1 text-xs text-zinc-500">
-                        It sets up {picked.name}, and the preview shows up here for the whole team by itself.
-                      </p>
-                    )}
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {agent && !asked && (
-                        <button
-                          type="button"
-                          disabled={saving}
-                          className={solid}
-                          onClick={async () => {
-                            setLinkErr(null);
-                            const err = await onAskAgent(picked.key);
-                            if (err) setLinkErr(err);
-                            else setAsked(true);
-                          }}
-                        >
-                          Ask {agent} to Set It Up
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className={agent && !asked ? ghost : asked ? ghost : solid}
-                        onClick={() => {
-                          void navigator.clipboard?.writeText(setupPrompt(picked.key) ?? "").then(() => {
-                            setCopied(true);
-                            setTimeout(() => setCopied(false), 2000);
-                          });
-                        }}
-                      >
-                        {copied ? "Copied" : agent ? "Copy Instead" : "Copy for My Agent"}
-                      </button>
                     </div>
-                    <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">Or paste the link yourself</p>
                   </div>
                 )}
-                <label className="block text-sm font-semibold" htmlFor="pv-link">
-                  {picked ? `Your ${picked.name} link` : "Link to your team's work in progress"}
-                </label>
-                {picked && <p className="mt-1 text-xs text-zinc-500">{picked.hint}</p>}
-                <input
-                  id="pv-link"
-                  autoFocus
-                  value={previewIn}
-                  onChange={(e) => setPreviewIn(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && void save()}
-                  placeholder="https://"
-                  inputMode="url"
-                  className="mt-2 w-full rounded border border-zinc-300 bg-white px-2.5 py-2 text-sm outline-none placeholder:text-zinc-400 focus-visible:border-zinc-900"
-                />
-                <label className="mt-3 block text-xs text-zinc-600" htmlFor="pv-live">
-                  Public site link (optional)
-                </label>
-                <input
-                  id="pv-live"
-                  value={liveIn}
-                  onChange={(e) => setLiveIn(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && void save()}
-                  placeholder="https://"
-                  inputMode="url"
-                  className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-2 text-sm outline-none placeholder:text-zinc-400 focus-visible:border-zinc-900"
-                />
-                {linkErr && <p className="mt-2 text-xs text-red-600">{linkErr}</p>}
-                <div className="mt-3 flex gap-2">
-                  <button type="button" disabled={saving} onClick={() => void save()} className={solid}>
-                    {saving ? "Saving…" : "Save"}
-                  </button>
-                  <button
-                    type="button"
-                    className={ghost}
-                    onClick={() => {
-                      setHost(null);
-                      if (previewUrl) setEditing(false);
-                    }}
-                  >
-                    Back
-                  </button>
-                  {previewUrl && (
+                <div className="px-5 py-4">
+                  {picked && canAgent && !manual && (
+                    <>
+                      {asked ? (
+                        <p role="status" className="text-sm text-zinc-700">
+                          Sent to {agent}. Say anything to it, even just{" "}
+                          <span className="font-semibold">go</span>, and it
+                          starts. The preview shows up here when it is done.
+                        </p>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          {agent && (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              className={`${solid} h-10 w-full`}
+                              onClick={async () => {
+                                setLinkErr(null);
+                                const err = await onAskAgent(picked.key);
+                                if (err) setLinkErr(err);
+                                else setAsked(true);
+                              }}
+                            >
+                              Ask {agent} to Set It Up
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className={`${agent ? ghost : solid} h-10 w-full`}
+                            onClick={() => {
+                              void navigator.clipboard
+                                ?.writeText(setupPrompt(picked.key) ?? "")
+                                .then(() => {
+                                  setCopied(true);
+                                  setTimeout(() => setCopied(false), 2000);
+                                });
+                            }}
+                          >
+                            {copied
+                              ? "Copied. Paste It to Your Agent"
+                              : agent
+                                ? "Copy the Request Instead"
+                                : "Copy for My Agent"}
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {(!picked || !canAgent || manual) && (
+                    <>
+                      <label
+                        className="block text-sm font-semibold"
+                        htmlFor="pv-link"
+                      >
+                        {picked
+                          ? "Preview link"
+                          : "Link to your team's work in progress"}
+                      </label>
+                      {picked && (
+                        <p className="mt-1 text-xs text-zinc-500">
+                          {picked.hint}
+                        </p>
+                      )}
+                      <input
+                        id="pv-link"
+                        autoFocus
+                        value={previewIn}
+                        onChange={(e) => setPreviewIn(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && void save()}
+                        placeholder="https://"
+                        inputMode="url"
+                        className="mt-2 w-full rounded border border-zinc-300 bg-white px-2.5 py-2 text-sm outline-none placeholder:text-zinc-400 focus-visible:border-zinc-900"
+                      />
+                      <label
+                        className="mt-3 block text-xs text-zinc-600"
+                        htmlFor="pv-live"
+                      >
+                        Public site link (optional)
+                      </label>
+                      <input
+                        id="pv-live"
+                        value={liveIn}
+                        onChange={(e) => setLiveIn(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && void save()}
+                        placeholder="https://"
+                        inputMode="url"
+                        className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-2 text-sm outline-none placeholder:text-zinc-400 focus-visible:border-zinc-900"
+                      />
+                    </>
+                  )}
+                  {linkErr && (
+                    <p className="mt-2 text-xs text-red-600">{linkErr}</p>
+                  )}
+                  <div className="mt-4 flex items-center gap-2">
+                    {(!picked || !canAgent || manual) && (
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => void save()}
+                        className={solid}
+                      >
+                        {saving ? "Saving…" : "Save"}
+                      </button>
+                    )}
                     <button
                       type="button"
-                      disabled={saving}
-                      onClick={() => (sure ? void disconnect() : setSure(true))}
-                      onBlur={() => setSure(false)}
-                      className={`ml-auto inline-flex h-9 items-center rounded px-3 text-sm font-semibold ${sure ? "bg-red-600 text-white hover:bg-red-700" : "text-red-600 hover:bg-red-50"} ${focus}`}
+                      className={ghost}
+                      onClick={() => {
+                        setHost(null);
+                        if (previewUrl) setEditing(false);
+                      }}
                     >
-                      {sure ? "Disconnect for Everyone" : "Disconnect"}
+                      Back
                     </button>
-                  )}
+                    {picked && canAgent && (
+                      <button
+                        type="button"
+                        className={`h-9 rounded px-2 text-sm font-semibold text-zinc-500 hover:text-zinc-900 ${focus}`}
+                        onClick={() => setManual((m) => !m)}
+                      >
+                        {manual ? "Use My Agent" : "Paste a Link Instead"}
+                      </button>
+                    )}
+                    {previewUrl && (
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() =>
+                          sure ? void disconnect() : setSure(true)
+                        }
+                        onBlur={() => setSure(false)}
+                        className={`ml-auto inline-flex h-9 items-center rounded px-3 text-sm font-semibold ${sure ? "bg-red-600 text-white hover:bg-red-700" : "text-red-600 hover:bg-red-50"} ${focus}`}
+                      >
+                        {sure ? "Disconnect for Everyone" : "Disconnect"}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -399,13 +556,21 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
         ) : previewUrl ? (
           <Browser url={previewUrl} reloadKey={iframeKey} view={view} />
         ) : (
-          <button type="button" className={`${ghost} m-auto`} onClick={() => setSkipped(false)}>
+          <button
+            type="button"
+            className={`${ghost} m-auto`}
+            onClick={() => setSkipped(false)}
+          >
             Add a Preview Link
           </button>
         )}
       </div>
 
-      <section aria-label="New" className="relative flex shrink-0 flex-col border-t border-zinc-200 bg-white" style={{ height: listH }}>
+      <section
+        aria-label="New"
+        className="relative flex shrink-0 flex-col border-t border-zinc-200 bg-white"
+        style={{ height: listH }}
+      >
         <div
           role="separator"
           aria-orientation="horizontal"
@@ -449,7 +614,11 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
             </span>
           ) : ahead > 0 ? (
             <>
-              <span className="font-bold">{hold > 0 ? `${rows.length - hold} of ${rows.length}` : `${ahead} new`}</span>
+              <span className="font-bold">
+                {hold > 0
+                  ? `${rows.length - hold} of ${rows.length}`
+                  : `${ahead} new`}
+              </span>
               {!later && <span className="text-zinc-500">Looks good?</span>}
             </>
           ) : (
@@ -464,12 +633,23 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
           {ahead > 0 && !justLive && (
             <>
               {!later && (
-                <button type="button" className={ghost} disabled={running} onClick={() => setLater(true)}>
+                <button
+                  type="button"
+                  className={ghost}
+                  disabled={running}
+                  onClick={() => setLater(true)}
+                >
                   Not Yet
                 </button>
               )}
               <span className="group relative inline-flex">
-                <button type="button" className={solid} disabled={!canGo} onClick={() => void publish()} aria-describedby="publish-tip">
+                <button
+                  type="button"
+                  className={solid}
+                  disabled={!canGo}
+                  onClick={() => void publish()}
+                  aria-describedby="publish-tip"
+                >
                   {running ? "Publishing…" : "Publish"}
                 </button>
                 <span
@@ -485,31 +665,61 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
         </div>
         <ul className="min-h-0 flex-1 overflow-y-auto">
           {rows.map((c, i) => (
-              <li key={i} className={`flex min-h-9 items-center gap-3 px-3.5 text-sm ${i ? "border-t border-zinc-200" : ""}`}>
-                {maxHold > 0 && (
-                  <button
-                    type="button"
-                    role="checkbox"
-                    aria-checked={i >= hold}
-                    aria-label={`Publish: ${c.message || "Saved work"}`}
-                    title={i >= hold ? "Leave this and anything newer for later" : "Publish this and everything before it"}
-                    onClick={() => setHoldRaw(i >= hold ? Math.min(i + 1, maxHold) : i)}
-                    className={`grid h-4 w-4 shrink-0 place-items-center rounded-sm border ${i >= hold ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-400 bg-white text-transparent hover:border-zinc-900"} ${focus}`}
+            <li
+              key={i}
+              className={`flex min-h-9 items-center gap-3 px-3.5 text-sm ${i ? "border-t border-zinc-200" : ""}`}
+            >
+              {maxHold > 0 && (
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={i >= hold}
+                  aria-label={`Publish: ${c.message || "Saved work"}`}
+                  title={
+                    i >= hold
+                      ? "Leave this and anything newer for later"
+                      : "Publish this and everything before it"
+                  }
+                  onClick={() =>
+                    setHoldRaw(i >= hold ? Math.min(i + 1, maxHold) : i)
+                  }
+                  className={`grid h-4 w-4 shrink-0 place-items-center rounded-sm border ${i >= hold ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-400 bg-white text-transparent hover:border-zinc-900"} ${focus}`}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-3 w-3"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
                   >
-                    <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                      <path d="M5 12.5l4.5 4.5L19 7.5" />
-                    </svg>
-                  </button>
-                )}
-                <span className={`flex min-w-0 flex-1 items-center gap-3 ${i < hold ? "opacity-40" : ""}`} style={{ transition: "opacity 0.15s" }}>
-                  <Avatar name={c.who} avatarUrl={avatars.get(c.who)} size={20} />
-                  <span className="min-w-0 flex-1 truncate font-semibold" title={c.message}>
-                    {c.message === "Saved turn" || !c.message ? "Saved work" : c.message}
-                  </span>
-                  <span className="w-28 shrink-0 truncate text-[13px] text-zinc-500">{i < hold ? "Later" : c.who}</span>
-                  <span className="w-10 shrink-0 text-right text-[13px] text-zinc-500">{ago(c.at)}</span>
+                    <path d="M5 12.5l4.5 4.5L19 7.5" />
+                  </svg>
+                </button>
+              )}
+              <span
+                className={`flex min-w-0 flex-1 items-center gap-3 ${i < hold ? "opacity-40" : ""}`}
+                style={{ transition: "opacity 0.15s" }}
+              >
+                <Avatar name={c.who} avatarUrl={avatars.get(c.who)} size={20} />
+                <span
+                  className="min-w-0 flex-1 truncate font-semibold"
+                  title={c.message}
+                >
+                  {c.message === "Saved turn" || !c.message
+                    ? "Saved work"
+                    : c.message}
                 </span>
-              </li>
+                <span className="w-28 shrink-0 truncate text-[13px] text-zinc-500">
+                  {i < hold ? "Later" : c.who}
+                </span>
+                <span className="w-10 shrink-0 text-right text-[13px] text-zinc-500">
+                  {ago(c.at)}
+                </span>
+              </span>
+            </li>
           ))}
         </ul>
       </section>
@@ -520,7 +730,10 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
 const clampH = (h: number) => Math.max(52, Math.min(520, Math.round(h)));
 
 // The page inside a 14-inch MacBook Pro browser window, and an iPhone 17 screen, in CSS pixels.
-const SIZES = { desktop: { w: 1512, h: 862 }, phone: { w: 402, h: 874 } } as const;
+const SIZES = {
+  desktop: { w: 1512, h: 862 },
+  phone: { w: 402, h: 874 },
+} as const;
 type View = keyof typeof SIZES;
 const BAR = 37;
 
@@ -529,14 +742,24 @@ const BAR = 37;
  * thing is scaled down to fit, so proportions are always true. It opens signed out:
  * `credentialless` gives it a fresh, empty session that is thrown away when it closes.
  */
-function Browser({ url, reloadKey, view }: { url: string; reloadKey: number; view: View }) {
+function Browser({
+  url,
+  reloadKey,
+  view,
+}: {
+  url: string;
+  reloadKey: number;
+  view: View;
+}) {
   const box = useRef<HTMLDivElement>(null);
   const [room, setRoom] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
     const el = box.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setRoom({ w: el.clientWidth, h: el.clientHeight }));
+    const ro = new ResizeObserver(() =>
+      setRoom({ w: el.clientWidth, h: el.clientHeight }),
+    );
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -545,24 +768,40 @@ function Browser({ url, reloadKey, view }: { url: string; reloadKey: number; vie
   const phone = view === "phone";
   // The desktop keeps its browser bar, which is not scaled; the phone is all screen.
   const bar = phone ? 0 : BAR;
-  const scale = room.w ? Math.min(1, room.w / size.w, Math.max(room.h - bar - 2, 0) / size.h) : 0;
+  const scale = room.w
+    ? Math.min(1, room.w / size.w, Math.max(room.h - bar - 2, 0) / size.h)
+    : 0;
 
   return (
-    <div ref={box} className="flex min-h-0 min-w-0 flex-1 items-center justify-center">
+    <div
+      ref={box}
+      className="flex min-h-0 min-w-0 flex-1 items-center justify-center"
+    >
       {scale > 0 && (
         <div
           className="flex shrink-0 flex-col overflow-hidden border border-zinc-300 bg-white shadow-[0_34px_70px_-24px_rgba(0,0,0,0.30),0_10px_24px_-10px_rgba(0,0,0,0.14)]"
-          style={{ width: size.w * scale + 2, borderRadius: phone ? 44 * scale : 4 }}
+          style={{
+            width: size.w * scale + 2,
+            borderRadius: phone ? 44 * scale : 4,
+          }}
         >
           {!phone && (
-            <div className="flex shrink-0 items-center gap-1.5 border-b border-zinc-200 px-3" style={{ height: BAR }}>
+            <div
+              className="flex shrink-0 items-center gap-1.5 border-b border-zinc-200 px-3"
+              style={{ height: BAR }}
+            >
               <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
               <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
               <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
-              <span className="ml-2 min-w-0 flex-1 truncate text-xs text-zinc-500">{url.replace(/^https?:\/\//, "")}</span>
+              <span className="ml-2 min-w-0 flex-1 truncate text-xs text-zinc-500">
+                {url.replace(/^https?:\/\//, "")}
+              </span>
             </div>
           )}
-          <div className="overflow-hidden" style={{ width: size.w * scale, height: size.h * scale }}>
+          <div
+            className="overflow-hidden"
+            style={{ width: size.w * scale, height: size.h * scale }}
+          >
             <iframe
               key={`${reloadKey}-${view}`}
               src={url}
@@ -570,7 +809,12 @@ function Browser({ url, reloadKey, view }: { url: string; reloadKey: number; vie
               sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
               {...{ credentialless: "" }}
               className="border-0 bg-white"
-              style={{ width: size.w, height: size.h, transform: `scale(${scale})`, transformOrigin: "0 0" }}
+              style={{
+                width: size.w,
+                height: size.h,
+                transform: `scale(${scale})`,
+                transformOrigin: "0 0",
+              }}
             />
           </div>
         </div>
