@@ -38,7 +38,7 @@ export function Crumb({ place }: { place?: string }) {
 export function GitHubIcon({ white = false, className = "h-5 w-5" }: { white?: boolean; className?: string }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src="/github-mark.png" alt="" aria-hidden className={`${className} shrink-0 ${white ? "invert" : ""}`} />
+    <img src="/github-mark.png" alt="" aria-hidden className={`${className} shrink-0 ${white ? "mix-blend-screen invert" : "mix-blend-multiply"}`} />
   );
 }
 

@@ -749,6 +749,54 @@ export default function RoomPage() {
     <AccountMenu name={mine?.name ?? ""} avatarUrl={mine?.avatarUrl} headers={headers} onRenamed={() => void loadChannels()} />
   );
 
+  /** Right side of every header: teammates, Invite, the live dot and your picture. */
+  const headerRight = (
+    <div className="flex shrink-0 items-center gap-3">
+            <div className="flex items-center pl-1.5">
+              {shownMembers.map((m) => (
+                <button
+                  key={m.userId}
+                  type="button"
+                  title={m.name}
+                  aria-label={`About ${m.name}`}
+                  onMouseDown={(e) => e.stopPropagation()}
+                      data-pop
+                      onClick={(e) => pinCard(m.userId, e.currentTarget)}
+                      onMouseEnter={(e) => hoverCard(m.userId, e.currentTarget)}
+                      onMouseLeave={leaveCard}
+                  className="-ml-1.5 inline-flex rounded-full ring-2 ring-white focus-visible:outline-none focus-visible:ring-zinc-900"
+                >
+                  <Avatar name={m.name} avatarUrl={m.avatarUrl} size={24} />
+                </button>
+              ))}
+              {others.length > 5 && (
+                <span
+                  title={others.slice(5).map((m) => m.name).join(", ")}
+                  className="-ml-1.5 grid h-6 min-w-6 place-items-center rounded-full bg-zinc-200 px-1 text-[11px] font-medium text-zinc-700 ring-2 ring-white"
+                >
+                  +{others.length - 5}
+                </span>
+              )}
+            </div>
+            <Invite
+              inviteCode={inviteCode}
+              roomName={wsName}
+              people={members.map((m) => (
+                <span key={m.userId} title={m.name} className="inline-flex">
+                  <Avatar name={m.name} avatarUrl={m.avatarUrl} size={24} />
+                </span>
+              ))}
+            />
+            <span
+              role="img"
+              title={live ? "Live" : "Reconnecting"}
+              aria-label={live ? "Live" : "Reconnecting"}
+              className={`h-2 w-2 rounded-full ${live ? "bg-emerald-500" : "bg-amber-500"}`}
+            />
+            {account}
+    </div>
+  );
+
   return (
     <div className="fixed inset-0 flex bg-white text-zinc-900" style={{ colorScheme: "light" }}>
       {sidebarOpen && (
@@ -1030,7 +1078,7 @@ export default function RoomPage() {
           draft={draft}
           reloadKey={reloadKey}
           lead={menuBtn}
-          trail={account}
+          trail={headerRight}
           avatars={avatarByName}
           onSaveLinks={saveLinks}
           onGoLive={goLive}
@@ -1051,50 +1099,7 @@ export default function RoomPage() {
               {current ? (current.kind === "dm" ? current.title : feed ? (current.name === "updates" ? "Updates" : "Changes") : `# ${current.name}`) : ""}
             </h1>
           </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <div className="flex items-center pl-1.5">
-              {shownMembers.map((m) => (
-                <button
-                  key={m.userId}
-                  type="button"
-                  title={m.name}
-                  aria-label={`About ${m.name}`}
-                  onMouseDown={(e) => e.stopPropagation()}
-                      data-pop
-                      onClick={(e) => pinCard(m.userId, e.currentTarget)}
-                      onMouseEnter={(e) => hoverCard(m.userId, e.currentTarget)}
-                      onMouseLeave={leaveCard}
-                  className="-ml-1.5 inline-flex rounded-full ring-2 ring-white focus-visible:outline-none focus-visible:ring-zinc-900"
-                >
-                  <Avatar name={m.name} avatarUrl={m.avatarUrl} size={24} />
-                </button>
-              ))}
-              {others.length > 5 && (
-                <span
-                  title={others.slice(5).map((m) => m.name).join(", ")}
-                  className="-ml-1.5 grid h-6 min-w-6 place-items-center rounded-full bg-zinc-200 px-1 text-[11px] font-medium text-zinc-700 ring-2 ring-white"
-                >
-                  +{others.length - 5}
-                </span>
-              )}
-            </div>
-            <Invite
-              inviteCode={inviteCode}
-              roomName={wsName}
-              people={members.map((m) => (
-                <span key={m.userId} title={m.name} className="inline-flex">
-                  <Avatar name={m.name} avatarUrl={m.avatarUrl} size={24} />
-                </span>
-              ))}
-            />
-            <span
-              role="img"
-              title={live ? "Live" : "Reconnecting"}
-              aria-label={live ? "Live" : "Reconnecting"}
-              className={`h-2 w-2 rounded-full ${live ? "bg-emerald-500" : "bg-amber-500"}`}
-            />
-            {account}
-          </div>
+          {headerRight}
         </header>
 
         <div
