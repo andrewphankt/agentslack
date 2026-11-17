@@ -55,6 +55,37 @@ const TOOLS = [
     },
   },
   {
+    name: "list_channels",
+    description: "List the channels in your room.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "post_to_channel",
+    description:
+      "Post a message in a channel of your room, by name. The channel is created if it does not exist yet.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        channel: { type: "string", description: "Channel name, for example design" },
+        text: { type: "string", description: "The message" },
+      },
+      required: ["channel", "text"],
+    },
+  },
+  {
+    name: "rename_channel",
+    description:
+      "Rename a channel in your room. The built-in channels general, prd and changes cannot be renamed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Current channel name" },
+        to: { type: "string", description: "New channel name" },
+      },
+      required: ["from", "to"],
+    },
+  },
+  {
     name: "message_person",
     description:
       "Send a direct message to a teammate (by name) in your room. Use it when you need to coordinate with them.",
@@ -253,6 +284,73 @@ async function messagePerson(agent: Agent, args: Record<string, unknown>): Promi
   return text(`Sent to ${hit[1]}.`);
 }
 
+const BUILT_IN = ["general", "prd", "changes"];
+
+/** "#My Design!" -> "my-design". Empty when nothing usable is left. */
+function channelSlug(raw: unknown): string {
+  return typeof raw === "string"
+    ? raw.trim().toLowerCase().replace(/^#+/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40)
+    : "";
+}
+
+async function listChannels(agent: Agent): Promise<ToolResult> {
+  const rows = await prisma.channel.findMany({
+    where: { workspaceId: agent.workspaceId, kind: "channel" },
+    orderBy: { createdAt: "asc" },
+    select: { name: true },
+  });
+  return text(rows.map((r) => `#${r.name}`).join("\n") || "No channels yet.");
+}
+
+async function postToChannel(agent: Agent, args: Record<string, unknown>): Promise<ToolResult> {
+  const name = channelSlug(args.channel);
+  const body = typeof args.text === "string" ? args.text.trim() : "";
+  if (!name) return text("channel is required", true);
+  if (!body) return text("text is required", true);
+  const found = await prisma.channel.findUnique({
+    where: { workspaceId_kind_name: { workspaceId: agent.workspaceId, kind: "channel", name } },
+  });
+  const channel =
+    found ??
+    (await prisma.channel.create({ data: { workspaceId: agent.workspaceId, kind: "channel", name } }));
+  const names = await displayNames(agent.workspaceId);
+  const row = await prisma.collaborationMessage.create({
+    data: {
+      workspaceId: agent.workspaceId,
+      channelId: channel.id,
+      authorUserId: null,
+      authorAgentId: agent.id,
+      type: "chat",
+      fromAgent: agentLabel(agent, names),
+      toTarget: `#${name}`,
+      content: { text: body.slice(0, 4000) },
+      messageId: randomUUID(),
+    },
+  });
+  if (!found) await broadcastWorkspaceEvent(agent.workspaceId, { type: "chat_channels_changed" });
+  await broadcastWorkspaceEvent(agent.workspaceId, {
+    type: "chat_message",
+    channelId: channel.id,
+    messageId: row.id,
+  });
+  return text(found ? `Posted in #${name}.` : `Created #${name} and posted there.`);
+}
+
+async function renameChannel(agent: Agent, args: Record<string, unknown>): Promise<ToolResult> {
+  const from = channelSlug(args.from);
+  const to = channelSlug(args.to);
+  if (!from || !to) return text("from and to are required", true);
+  if (BUILT_IN.includes(from)) return text(`#${from} is built in and cannot be renamed.`, true);
+  const where = { workspaceId: agent.workspaceId, kind: "channel" };
+  const row = await prisma.channel.findFirst({ where: { ...where, name: from } });
+  if (!row) return text(`There is no #${from}.`, true);
+  if (await prisma.channel.findFirst({ where: { ...where, name: to } }))
+    return text(`#${to} already exists.`, true);
+  await prisma.channel.update({ where: { id: row.id }, data: { name: to } });
+  await broadcastWorkspaceEvent(agent.workspaceId, { type: "chat_channels_changed" });
+  return text(`Renamed #${from} to #${to}.`);
+}
+
 async function callTool(agent: Agent, params: Record<string, unknown>): Promise<ToolResult> {
   const args = (params.arguments ?? {}) as Record<string, unknown>;
   try {
@@ -261,6 +359,9 @@ async function callTool(agent: Agent, params: Record<string, unknown>): Promise<
     if (params.name === "post_note") return await postNote(agent, args);
     if (params.name === "write_prd") return await writePrd(agent, args);
     if (params.name === "message_person") return await messagePerson(agent, args);
+    if (params.name === "list_channels") return await listChannels(agent);
+    if (params.name === "post_to_channel") return await postToChannel(agent, args);
+    if (params.name === "rename_channel") return await renameChannel(agent, args);
     return text(`Unknown tool: ${String(params.name)}`, true);
   } catch {
     return text("Tool failed.", true);

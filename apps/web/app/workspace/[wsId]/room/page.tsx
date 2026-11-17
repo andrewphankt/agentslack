@@ -311,6 +311,7 @@ export default function RoomPage() {
             return;
           }
           if (ev.type === "chat_message" && ev.channelId) {
+            if (!channelsRef.current.some((c) => c.id === ev.channelId)) void loadChannels();
             const prdId = channelsRef.current.find(
               (c) => c.kind === "channel" && c.name === "prd"
             )?.id;

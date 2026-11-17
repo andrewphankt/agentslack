@@ -150,7 +150,7 @@ export async function POST(req: Request) {
 
   const ws = await createWorkspaceWithOwner(userId, name);
 
-  for (const channelName of ["general", "prd"]) {
+  for (const channelName of ["general", "prd", "changes"]) {
     await prisma.channel.upsert({
       where: {
         workspaceId_kind_name: { workspaceId: ws.id, kind: "channel", name: channelName },
