@@ -306,21 +306,7 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
             )}
           </div>
         ) : previewUrl ? (
-          <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded border border-zinc-300 bg-white shadow-[0_34px_70px_-24px_rgba(0,0,0,0.30),0_10px_24px_-10px_rgba(0,0,0,0.14)]">
-            <div className="flex shrink-0 items-center gap-1.5 border-b border-zinc-200 px-3 py-2">
-              <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
-              <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
-              <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
-              <span className="ml-2 truncate text-xs text-zinc-500">{previewUrl.replace(/^https?:\/\//, "")}</span>
-            </div>
-            <iframe
-              key={iframeKey}
-              src={previewUrl}
-              title="Preview"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-              className="min-h-0 w-full flex-1 border-0 bg-white"
-            />
-          </div>
+          <Browser url={previewUrl} reloadKey={iframeKey} />
         ) : (
           <button type="button" className={`${ghost} m-auto`} onClick={() => setSkipped(false)}>
             Add a Preview Link
@@ -417,5 +403,93 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
         </ul>
       </section>
     </main>
+  );
+}
+
+const SIZES = { desktop: { w: 1440, h: 900 }, phone: { w: 390, h: 844 } } as const;
+type View = keyof typeof SIZES;
+const BAR = 37;
+
+/**
+ * The little browser. The page is laid out at a real desktop or phone width and scaled to
+ * fit, so it looks the way a visitor sees it. It opens signed out: `credentialless` gives
+ * it a fresh, empty session that is thrown away when it closes.
+ */
+function Browser({ url, reloadKey }: { url: string; reloadKey: number }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [room, setRoom] = useState({ w: 0, h: 0 });
+  const [view, setView] = useState<View>("desktop");
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("as:preview-view") === "phone") setView("phone");
+    } catch {
+      /* private window */
+    }
+  }, []);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setRoom({ w: el.clientWidth, h: el.clientHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  function pick(v: View) {
+    setView(v);
+    try {
+      localStorage.setItem("as:preview-view", v);
+    } catch {
+      /* private window */
+    }
+  }
+
+  const size = SIZES[view];
+  const tall = Math.max(room.h - BAR, 0);
+  // Desktop: fixed width, as tall as there is room for. Phone: the whole phone must fit.
+  const scale = room.w ? Math.min(1, room.w / size.w, view === "phone" ? tall / size.h : 1) : 0;
+  const pageH = view === "phone" ? size.h : scale ? tall / scale : 0;
+  const tab = (v: View, label: string) => (
+    <button
+      type="button"
+      aria-pressed={view === v}
+      onClick={() => pick(v)}
+      className={`h-6 rounded-sm px-2 text-xs font-semibold ${view === v ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"} ${focus}`}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div ref={box} className="flex min-h-0 min-w-0 flex-1 items-start justify-center">
+      {scale > 0 && (
+        <div
+          className="flex flex-col overflow-hidden rounded border border-zinc-300 bg-white shadow-[0_34px_70px_-24px_rgba(0,0,0,0.30),0_10px_24px_-10px_rgba(0,0,0,0.14)]"
+          style={{ width: Math.max(size.w * scale, 200) }}
+        >
+          <div className="flex shrink-0 items-center gap-1.5 border-b border-zinc-200 px-3" style={{ height: BAR - 1 }}>
+            <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
+            <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
+            <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
+            <span className={`ml-2 min-w-0 flex-1 truncate text-xs text-zinc-500 ${view === "phone" ? "invisible" : ""}`}>{url.replace(/^https?:\/\//, "")}</span>
+            <div role="group" aria-label="Screen size" className="flex shrink-0 gap-0.5">
+              {tab("desktop", "Desktop")}
+              {tab("phone", "Phone")}
+            </div>
+          </div>
+          <div className="mx-auto overflow-hidden" style={{ width: size.w * scale, height: pageH * scale }}>
+            <iframe
+              key={`${reloadKey}-${view}`}
+              src={url}
+              title="Preview"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+              {...{ credentialless: "" }}
+              className="border-0 bg-white"
+              style={{ width: size.w, height: pageH, transform: `scale(${scale})`, transformOrigin: "0 0" }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
