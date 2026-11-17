@@ -598,7 +598,10 @@ export default function RoomPage() {
                 slot={a.slot}
                 size={20}
               />
-              <span className="min-w-0 flex-1 pl-1" title={a.label}>
+              <span
+                className={`min-w-0 flex-1 pl-1 ${a.online ? "" : "opacity-50"}`}
+                title={a.online ? a.label : `${a.label} (not running)`}
+              >
                 <span className="block truncate">{a.short}</span>
                 {a.activeFile && (
                   <span className="block truncate text-xs text-zinc-500">{a.activeFile}</span>

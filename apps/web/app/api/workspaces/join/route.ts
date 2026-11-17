@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { actorUserIdFromRequest } from "@/lib/auth";
 import { createWorkspaceMemberIfNeeded } from "@/lib/workspaces/createWorkspaceMember";
+import { giveRepoAccess } from "@/lib/github/collaborator";
 
 export async function POST(req: Request) {
   const userId = await actorUserIdFromRequest(req);
@@ -45,8 +46,12 @@ async function handleJoinCodes(
     displayName: body.displayName,
   });
 
+  // Joining the room also gives edit access to the room's repo.
+  const repoAccess = await giveRepoAccess(ws.id, userId);
+
   return NextResponse.json({
     workspaceId: ws.id,
     contextToken: member.contextToken,
+    repoAccess,
   });
 }

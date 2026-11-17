@@ -69,7 +69,7 @@ export function Invite({ inviteCode }: { inviteCode: string }) {
           aria-label="Invite people"
           className="absolute right-0 top-full z-30 mt-2 w-72 rounded-lg border border-zinc-200 bg-white p-3 text-zinc-900 shadow-lg"
         >
-          <p className="mb-2 text-sm text-zinc-600">Anyone with this link can join.</p>
+          <p className="mb-2 text-sm text-zinc-600">Anyone with this link can join and edit the project. Share it only with your team.</p>
           <input
             ref={inputRef}
             readOnly
