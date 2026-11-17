@@ -28,9 +28,11 @@ function command(kind: string, origin: string, token: string, first: boolean): s
 }
 
 /** A message to paste to an agent that is already running in the project. */
-function agentMessage(origin: string, token: string, first: boolean): string {
+function agentMessage(origin: string, token: string, first: boolean, repoUrl: string | null): string {
   const lines = [
-    "Connect this project to my team room. Run this in the project folder:",
+    repoUrl
+      ? `Connect this project to my team room. The project is ${repoUrl}. If this folder is not a copy of it yet, get it first (git clone ${repoUrl}) and work inside that folder. Then run this in the project folder:`
+      : "Connect this project to my team room. Run this in the project folder:",
     "",
     `curl -fsSL ${origin}/api/connect | sh -s -- ${token}`,
   ];
@@ -70,14 +72,14 @@ export function ConnectAgent({
   const first = mode === "first";
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const [made, setMade] = useState<{ kind: string; token: string } | null>(null);
+  const [made, setMade] = useState<{ kind: string; token: string; repoUrl: string | null } | null>(null);
   /** "agent": a message for a running agent. "terminal": a command to paste. */
   const [via, setVia] = useState<"agent" | "terminal">("agent");
   const canTell = made?.kind === "claude";
   const cmd = !made
     ? ""
     : canTell && via === "agent"
-      ? agentMessage(window.location.origin, made.token, first)
+      ? agentMessage(window.location.origin, made.token, first, made.repoUrl)
       : command(made.kind, window.location.origin, made.token, first);
   const [busy, setBusy] = useState(false);
   const [purpose, setPurpose] = useState("");
@@ -111,8 +113,8 @@ export function ConnectAgent({
         body: JSON.stringify({ kind, purpose: askPurpose ? purpose : undefined }),
       });
       if (!res.ok) throw new Error();
-      const { token } = (await res.json()) as { token: string };
-      setMade({ kind, token });
+      const { token, repoUrl } = (await res.json()) as { token: string; repoUrl?: string | null };
+      setMade({ kind, token, repoUrl: repoUrl ?? null });
       setCopied(false);
     } catch {
       setError("Could not create the agent.");

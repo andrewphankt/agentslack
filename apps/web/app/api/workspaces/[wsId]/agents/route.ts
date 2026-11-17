@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { repoForWorkspace } from "@/lib/github/draft";
 import { prisma } from "@/lib/prisma";
 import { actorUserIdFromWorkspaceAuth } from "@/lib/auth";
 import { broadcastWorkspaceEvent } from "@/lib/realtime/broadcast";
@@ -117,5 +118,10 @@ export async function POST(req: Request, ctx: { params: { wsId: string } }) {
   });
   const names = await displayNames(wsId);
   await broadcastWorkspaceEvent(wsId, { type: "agents_changed" });
-  return NextResponse.json({ agent: view(row, me, names), token });
+  const repo = await repoForWorkspace(wsId);
+  return NextResponse.json({
+    agent: view(row, me, names),
+    token,
+    repoUrl: repo ? `https://github.com/${repo.owner}/${repo.repo}` : null,
+  });
 }
