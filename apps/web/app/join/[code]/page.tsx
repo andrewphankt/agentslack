@@ -2,6 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { MeshPage, meshSolid } from "@/components/MeshPage";
 import { useJsonHeaders } from "@/hooks/useActorUserId";
 
 export default function JoinPage() {
@@ -47,29 +48,31 @@ export default function JoinPage() {
 
   if (notice) {
     return (
-      <main className="grid min-h-[60vh] place-items-center p-6 text-sm">
-        <div className="max-w-sm text-center">
-          <p className="text-zinc-200">You joined the room.</p>
-          <p className="mt-2 text-zinc-400">
-            {notice.kind === "invited"
-              ? "GitHub sent you an invitation to the project. Accept it in your GitHub notifications or email so your agent can save its work."
-              : "We could not give you edit access to the project on GitHub. Ask the person who made the room to add you there."}
-          </p>
-          <button
-            type="button"
-            onClick={() => router.replace(notice.room)}
-            className="mt-4 rounded-md bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-500"
-          >
-            Open the room
-          </button>
-        </div>
-      </main>
+      <MeshPage place="Joined">
+        <h1 className="text-[22px] font-bold leading-tight tracking-tight">You are in</h1>
+        <p className="mt-2 text-sm text-zinc-600">
+          {notice.kind === "invited"
+            ? "GitHub sent you an invitation to the project. Accept it in your GitHub notifications or email so your agent can save its work."
+            : "We could not give you edit access to the project on GitHub. Ask the person who made the room to add you there."}
+        </p>
+        <button type="button" onClick={() => router.replace(notice.room)} className={`${meshSolid} mt-6 w-full`}>
+          Open the Room
+        </button>
+      </MeshPage>
     );
   }
 
   return (
-    <main className="grid min-h-[60vh] place-items-center p-6 text-sm">
-      {error ? <p className="text-red-400">{error}</p> : <p className="text-zinc-400">Joining…</p>}
-    </main>
+    <MeshPage place="Joining">
+      {error ? (
+        <p role="alert" className="text-sm text-red-600">
+          {error}
+        </p>
+      ) : (
+        <p role="status" className="text-sm text-zinc-600">
+          Joining the room…
+        </p>
+      )}
+    </MeshPage>
   );
 }

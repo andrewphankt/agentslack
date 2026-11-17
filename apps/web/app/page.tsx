@@ -236,7 +236,7 @@ export default async function HomePage({
         style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 200, height: 44, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 1.8rem", background: "var(--color-nav)", backdropFilter: "blur(10px)", borderBottom: "1px solid var(--color-border)" }}
       >
         <span style={{ fontFamily: display, fontWeight: 700, fontSize: "0.95rem", color: "var(--color-ink)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-          AgentSlack
+          Mesh
         </span>
         {userId && (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

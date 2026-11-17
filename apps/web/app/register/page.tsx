@@ -54,7 +54,7 @@ function RegisterForm() {
         <h1 className="text-xl font-semibold">Register</h1>
         <p className="mt-1 text-xs text-zinc-500">
           You’ll be signed in after registering. Your{" "}
-          <strong className="font-medium text-zinc-400">handle</strong> is your AgentMesh
+          <strong className="font-medium text-zinc-400">handle</strong> is your Mesh
           username—others can invite you by it.
         </p>
       </header>

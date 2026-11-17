@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { AmbientBackground } from "@/components/AmbientBackground";
+import { GitHubIcon, MeshPage, meshFocus, meshInput, meshSolid } from "@/components/MeshPage";
 import { useJsonHeaders } from "@/hooks/useActorUserId";
 
 type Repo = {
@@ -16,9 +16,10 @@ export default function StartPage() {
   const router = useRouter();
   const headers = useJsonHeaders();
   const [repos, setRepos] = useState<Repo[] | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [filter, setFilter] = useState("");
   const [link, setLink] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -31,6 +32,8 @@ export default function StartPage() {
         if (alive && j.repos?.length) setRepos(j.repos);
       } catch {
         /* no GitHub list; the paste box still works */
+      } finally {
+        if (alive) setLoaded(true);
       }
     })();
     return () => {
@@ -45,7 +48,7 @@ export default function StartPage() {
 
   async function create(repoUrl: string, branch?: string) {
     if (busy) return;
-    setBusy(true);
+    setBusy(repoUrl);
     setError("");
     try {
       const res = await fetch("/api/onboarding/room", {
@@ -57,89 +60,94 @@ export default function StartPage() {
         | { workspaceId?: string; error?: string; existing?: boolean }
         | null;
       if (!res.ok || !j?.workspaceId) {
-        setError(j?.error ?? "Could not create the room. Try again.");
-        setBusy(false);
+        setError(j?.error ?? "Could not make the room. Try again.");
+        setBusy(null);
         return;
       }
       router.push(`/workspace/${j.workspaceId}/room${j.existing ? "" : "?welcome=1"}`);
     } catch {
-      setError("Could not create the room. Try again.");
-      setBusy(false);
+      setError("Could not make the room. Try again.");
+      setBusy(null);
     }
   }
 
   return (
-    <AmbientBackground>
-      <div className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900/80 p-6 shadow-2xl backdrop-blur">
-        <h1 className="text-xl font-semibold text-zinc-50">Pick a repo</h1>
-        <p className="mt-1 text-sm text-zinc-400">This becomes your room.</p>
+    <MeshPage place="New Room" wide>
+      <h1 className="text-[22px] font-bold leading-tight tracking-tight">Pick your project</h1>
+      <p className="mt-1 text-sm text-zinc-600">It becomes the room. Your team and their agents build it here.</p>
 
-        {repos && (
-          <div className="mt-5">
-            <input
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Search your repos"
-              aria-label="Search your repos"
-              disabled={busy}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none placeholder:text-zinc-500 focus:border-zinc-500"
-            />
-            <ul className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-zinc-800">
-              {shown.map((r) => (
-                <li key={r.full_name}>
+      {!loaded && <p className="mt-5 text-sm text-zinc-500">Loading your projects…</p>}
+
+      {repos && (
+        <div className="mt-5">
+          <input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Search"
+            aria-label="Search your projects"
+            disabled={!!busy}
+            className={meshInput}
+          />
+          <ul className="mt-2 max-h-72 overflow-y-auto rounded border border-zinc-200">
+            {shown.map((r) => {
+              const [owner, name] = r.full_name.split("/");
+              return (
+                <li key={r.full_name} className="border-b border-zinc-200 last:border-b-0">
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={!!busy}
                     onClick={() => void create(r.html_url, r.default_branch)}
-                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus-visible:bg-zinc-800 focus-visible:outline-none disabled:opacity-60"
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-zinc-50 disabled:opacity-50 ${meshFocus}`}
                   >
-                    <span className="min-w-0 truncate">{r.full_name}</span>
+                    <GitHubIcon className="h-4 w-4" />
+                    <span className="min-w-0 flex-1 truncate">
+                      <span className="text-zinc-500">{owner} / </span>
+                      <span className="font-semibold">{name}</span>
+                    </span>
                     <span className="shrink-0 text-xs text-zinc-500">
-                      {r.private ? "private" : "public"}
+                      {busy === r.html_url ? "Opening…" : r.private ? "Private" : "Public"}
                     </span>
                   </button>
                 </li>
-              ))}
-              {shown.length === 0 && (
-                <li className="px-3 py-3 text-sm text-zinc-500">No repos match.</li>
-              )}
-            </ul>
-          </div>
-        )}
-
-        <div className="my-5 flex items-center gap-3 text-xs text-zinc-500">
-          <span className="h-px flex-1 bg-zinc-800" />
-          {repos ? "or paste a link" : "Paste a link"}
-          <span className="h-px flex-1 bg-zinc-800" />
+              );
+            })}
+            {shown.length === 0 && <li className="px-3 py-3 text-sm text-zinc-500">Nothing matches.</li>}
+          </ul>
         </div>
+      )}
 
+      {loaded && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
             if (link.trim()) void create(link.trim());
           }}
-          className="flex flex-col gap-3"
+          className="mt-5"
         >
-          <input
-            value={link}
-            onChange={(e) => setLink(e.target.value)}
-            placeholder="https://github.com/you/project"
-            aria-label="Repo link"
-            disabled={busy}
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none placeholder:text-zinc-500 focus:border-zinc-500"
-          />
-          <button
-            type="submit"
-            disabled={busy || !link.trim()}
-            className="h-11 rounded-lg bg-white text-sm font-medium text-zinc-900 hover:bg-zinc-200 disabled:opacity-50"
-          >
-            {busy ? "Creating your room…" : "Create room"}
-          </button>
+          <label htmlFor="repo-link" className="block text-xs font-semibold text-zinc-600">
+            {repos ? "Or paste its GitHub link" : "Paste its GitHub link"}
+          </label>
+          <div className="mt-1.5 flex gap-2">
+            <input
+              id="repo-link"
+              value={link}
+              onChange={(e) => setLink(e.target.value)}
+              placeholder="https://github.com/you/project"
+              disabled={!!busy}
+              className={meshInput}
+            />
+            <button type="submit" disabled={!!busy || !link.trim()} className={`${meshSolid} shrink-0`}>
+              {busy && busy === link.trim() ? "Opening…" : "Make Room"}
+            </button>
+          </div>
         </form>
+      )}
 
-        {busy && repos && <p className="mt-3 text-sm text-zinc-400">Creating your room…</p>}
-        {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
-      </div>
-    </AmbientBackground>
+      {error && (
+        <p role="alert" className="mt-3 text-sm text-red-600">
+          {error}
+        </p>
+      )}
+    </MeshPage>
   );
 }

@@ -32,7 +32,7 @@ export async function POST(req: Request) {
  * Written with String.raw and no backticks or dollar-brace so the shell text stays literal.
  */
 const SCRIPT = String.raw`#!/bin/sh
-# AgentSlack connect: wires this clone to the team room.
+# Mesh connect: wires this clone to the team room.
 ORIGIN='__ORIGIN__'
 TOKEN="$1"
 fail() { echo "agentslack: $1" >&2; exit 1; }

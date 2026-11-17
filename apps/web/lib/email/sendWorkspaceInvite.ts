@@ -20,7 +20,7 @@ export async function sendWorkspaceInviteEmail(
 ): Promise<{ sent: boolean; skippedReason?: string }> {
   const key = process.env.RESEND_API_KEY?.trim();
   const from =
-    process.env.RESEND_FROM?.trim() ?? "AgentMesh <onboarding@resend.dev>";
+    process.env.RESEND_FROM?.trim() ?? "Mesh <onboarding@resend.dev>";
 
   if (!key) {
     return { sent: false, skippedReason: "no_resend_api_key" };
@@ -35,7 +35,7 @@ export async function sendWorkspaceInviteEmail(
     body: JSON.stringify({
       from,
       to: [args.toEmail],
-      subject: `Invitation to ${args.workspaceName} on AgentMesh`,
+      subject: `Invitation to ${args.workspaceName} on Mesh`,
       html: `<p>${escapeHtml(args.inviterLabel)} invited you to workspace <strong>${escapeHtml(args.workspaceName)}</strong>.</p><p><a href="${escapeHtml(args.acceptUrl)}">Accept invitation</a></p><p>This link expires in 7 days.</p>`,
     }),
   });
