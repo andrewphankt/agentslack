@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJsonHeaders } from "@/hooks/useActorUserId";
 import { AgentNote } from "./AgentNote";
 import { AgentAvatar, Avatar, agentCode } from "./Avatar";
-import { DemoSwitch } from "./DemoSwitch";
 import { ConnectAgent } from "./ConnectAgent";
 import { Invite } from "./Invite";
 import { RoomSwitcher } from "./RoomSwitcher";
@@ -622,7 +621,6 @@ export default function RoomPage() {
             </div>
           ))}
         </div>
-        <DemoSwitch wsId={wsId} me={me} />
       </aside>
       {showConnect && (
         <ConnectAgent

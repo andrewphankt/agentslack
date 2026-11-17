@@ -264,20 +264,6 @@ export default async function HomePage({ searchParams }: { searchParams?: { room
                 </p>
               </>
             )}
-            {process.env.NODE_ENV !== "production" && (
-              <div style={{ marginTop: "2.4rem", display: "inline-flex", flexDirection: "column", gap: 8, border: "1px dashed var(--color-border2)", borderRadius: 10, padding: "0.8rem 1rem" }}>
-                <span style={{ fontFamily: mono, fontSize: "0.56rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--color-muted)" }}>
-                  Testing mode
-                </span>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {["alice", "bob"].map((p) => (
-                    <a key={p} href={`/api/auth/demo?user=${p}`} className="l-demo">
-                      Demo: {p}
-                    </a>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </section>
 
