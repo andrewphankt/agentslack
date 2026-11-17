@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { Inter, JetBrains_Mono, Rajdhani } from "next/font/google";
+import { SignedOutLanding } from "@/components/SignedOutLanding";
 import { prisma } from "@/lib/prisma";
 import { hashSessionToken, SESSION_COOKIE_NAME } from "@/lib/sessionIssue";
 import { Avatar } from "./workspace/[wsId]/room/Avatar";
@@ -191,6 +192,7 @@ function ExampleCard({ ex }: { ex: (typeof EXAMPLES)[number] }) {
 
 export default async function HomePage() {
   const userId = await signedInUserId();
+  if (!userId) return <SignedOutLanding />;
   const [user, rooms] = userId
     ? await Promise.all([
         prisma.user.findUnique({ where: { id: userId }, select: { displayName: true, email: true, avatarUrl: true } }),
