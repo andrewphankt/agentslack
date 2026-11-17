@@ -54,14 +54,14 @@ export default function StartPage() {
         body: JSON.stringify({ repoUrl, ...(branch ? { branch } : {}) }),
       });
       const j = (await res.json().catch(() => null)) as
-        | { workspaceId?: string; error?: string }
+        | { workspaceId?: string; error?: string; existing?: boolean }
         | null;
       if (!res.ok || !j?.workspaceId) {
         setError(j?.error ?? "Could not create the room. Try again.");
         setBusy(false);
         return;
       }
-      router.push(`/workspace/${j.workspaceId}/room?welcome=1`);
+      router.push(`/workspace/${j.workspaceId}/room${j.existing ? "" : "?welcome=1"}`);
     } catch {
       setError("Could not create the room. Try again.");
       setBusy(false);

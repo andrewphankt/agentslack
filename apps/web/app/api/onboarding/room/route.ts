@@ -3,6 +3,8 @@ import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import { actorUserIdFromRequest } from "@/lib/auth";
 import { createWorkspaceWithOwner } from "@/lib/workspaces/create";
+import { createWorkspaceMemberIfNeeded } from "@/lib/workspaces/createWorkspaceMember";
+import { GITHUB_API, githubTokenFor, parseRepoUrl } from "@/lib/github/draft";
 import { cloneHostedGitRepo, sanitizeHostedGitHttps } from "@/lib/git/clone";
 import { resolveGithubAccessToken } from "@/lib/oauth/resolveGithubToken";
 import { runFullProjectIndex } from "@/lib/context/indexProject";
@@ -49,6 +51,65 @@ async function importAndIndex(params: {
   }
 }
 
+/**
+ * Looks for a room already tied to this repo.
+ * "open": the person is in it, or can write to the repo on GitHub and was added.
+ * "ask": a room exists but the person has no write access to the repo.
+ */
+async function existingRoomFor(
+  repoUrl: string,
+  userId: string
+): Promise<{ kind: "open"; id: string } | { kind: "ask" } | { kind: "none" }> {
+  const target = parseRepoUrl(repoUrl);
+  if (!target) return { kind: "none" };
+  const key = `${target.owner}/${target.repo}`.toLowerCase();
+  const projects = await prisma.project.findMany({
+    where: { sourceType: "git", sourceUrl: { contains: target.repo, mode: "insensitive" } },
+    select: { workspaceId: true, sourceUrl: true },
+    orderBy: { id: "asc" },
+  });
+  const rooms = projects
+    .filter((pr) => {
+      const r = pr.sourceUrl ? parseRepoUrl(pr.sourceUrl) : null;
+      return r && `${r.owner}/${r.repo}`.toLowerCase() === key;
+    })
+    .map((pr) => pr.workspaceId);
+  if (!rooms.length) return { kind: "none" };
+
+  const mine = await prisma.workspaceMember.findFirst({
+    where: { userId, workspaceId: { in: rooms } },
+    orderBy: { joinedAt: "asc" },
+    select: { workspaceId: true },
+  });
+  if (mine) return { kind: "open", id: mine.workspaceId };
+
+  // Not in the room yet: anyone who can write to the repo on GitHub belongs in it.
+  const token = await githubTokenFor(userId);
+  if (!token) return { kind: "ask" };
+  try {
+    const res = await fetch(`${GITHUB_API}/repos/${target.owner}/${target.repo}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
+    const j = res.ok ? ((await res.json()) as { permissions?: { push?: boolean } }) : null;
+    if (!j?.permissions?.push) return { kind: "ask" };
+  } catch {
+    return { kind: "ask" };
+  }
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { displayName: true } });
+  await createWorkspaceMemberIfNeeded({
+    workspaceId: rooms[0],
+    userId,
+    displayName: user?.displayName ?? null,
+  });
+  return { kind: "open", id: rooms[0] };
+}
+
 export async function POST(req: Request) {
   const userId = await actorUserIdFromRequest(req);
   const body = (await req.json().catch(() => ({}))) as {
@@ -77,6 +138,15 @@ export async function POST(req: Request) {
     typeof body.name === "string" && body.name.trim() ? body.name.trim().slice(0, 80) : repoName;
   const branch =
     typeof body.branch === "string" && body.branch.trim() ? body.branch.trim() : undefined;
+
+  // One room per repo: open the room this repo already has instead of making another.
+  const existing = await existingRoomFor(repoUrl, userId);
+  if (existing.kind === "open") return NextResponse.json({ workspaceId: existing.id, existing: true });
+  if (existing.kind === "ask")
+    return NextResponse.json(
+      { error: "This repo already has a room. Ask a teammate for the invite link." },
+      { status: 409 }
+    );
 
   const ws = await createWorkspaceWithOwner(userId, name);
 

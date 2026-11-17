@@ -10,7 +10,7 @@ export function SignedOutLanding() {
           Build one project together without stepping on each other.
         </h1>
         <a
-          href={`/api/auth/github/signin/start?return_to=${encodeURIComponent("/start")}`}
+          href={`/api/auth/github/signin/start?return_to=${encodeURIComponent("/")}`}
           className="mt-10 inline-flex h-14 items-center gap-3 rounded-xl bg-white px-8 text-base font-medium text-zinc-900 shadow-lg transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
         >
           <svg viewBox="0 0 16 16" className="h-6 w-6" fill="currentColor" aria-hidden>
