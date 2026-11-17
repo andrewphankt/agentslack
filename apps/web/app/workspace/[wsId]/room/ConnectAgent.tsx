@@ -269,7 +269,6 @@ export function ConnectAgent({
             <div className="flex min-h-11 items-center gap-3 border-t border-zinc-200 px-4 font-medium text-zinc-500" aria-live="polite">
               <span aria-hidden className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-zinc-200 border-t-zinc-900 motion-reduce:animate-none" />
               Waiting for {kind?.label}
-              <span className="ml-auto text-xs">checks by itself</span>
             </div>
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
