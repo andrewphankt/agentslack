@@ -1,5 +1,7 @@
 # Deploy: Neon + Vercel (web) + Railway or Fly (realtime)
 
+> **Current hosted copy:** everything runs on Railway (app, realtime, Postgres). Railway retired `railway.toml`, so build and start commands live in each service's settings. App: build `npm run build`, start `npx prisma migrate deploy && npm run start -w web`. Realtime: build `npx prisma generate`, start `npm run start -w realtime`. The sections below describe the older Vercel + Neon layout.
+
 Goal: a public Next.js app, Postgres on Neon, and a separate **realtime** service for collaboration pushes. Redis (e.g. Upstash) is optional—only if you set `REDIS_URL` on realtime.
 
 ---
