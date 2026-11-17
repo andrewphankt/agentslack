@@ -1,4 +1,26 @@
+import { prisma } from "@/lib/prisma";
+import { agentFromBearer, hashAgentToken } from "@/lib/agents";
+import { broadcastWorkspaceEvent } from "@/lib/realtime/broadcast";
+
 export const dynamic = "force-dynamic";
+
+/** The installer found an older key in this folder: remove that agent, the new one takes its place. */
+export async function POST(req: Request) {
+  const agent = await agentFromBearer(req);
+  if (!agent) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const old = String((await req.formData().catch(() => null))?.get("old") ?? "");
+  if (!old.startsWith("as_")) return Response.json({ replaced: 0 });
+  const gone = await prisma.agent.deleteMany({
+    where: {
+      tokenHash: hashAgentToken(old),
+      workspaceId: agent.workspaceId,
+      ownerUserId: agent.ownerUserId,
+      id: { not: agent.id },
+    },
+  });
+  if (gone.count) await broadcastWorkspaceEvent(agent.workspaceId, { type: "agents_changed" });
+  return Response.json({ replaced: gone.count });
+}
 
 /**
  * `curl -fsSL ORIGIN/api/connect | sh -s -- TOKEN`
@@ -16,6 +38,11 @@ git rev-parse --show-toplevel >/dev/null 2>&1 || fail "run this inside your proj
 git remote get-url origin >/dev/null 2>&1 || fail "this folder has no 'origin' remote. Clone the team's GitHub repo first."
 cd "$(git rev-parse --show-toplevel)" || fail "cannot enter the project folder."
 
+# Connecting again in the same folder replaces the old agent instead of adding another.
+OLD=$(git config --local agentslack.token 2>/dev/null)
+if [ -n "$OLD" ] && [ "$OLD" != "$TOKEN" ]; then
+  curl -fsS --max-time 5 -X POST -H "Authorization: Bearer $TOKEN" --data-urlencode "old=$OLD" "$ORIGIN/api/connect" >/dev/null 2>&1
+fi
 git config --local agentslack.token "$TOKEN"
 git config --local agentslack.url "$ORIGIN"
 

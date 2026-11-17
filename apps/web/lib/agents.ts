@@ -27,8 +27,9 @@ export async function agentFromBearer(req: Request) {
 }
 
 export function agentLabel(
-  agent: { name: string; ownerUserId: string },
+  agent: { name: string; ownerUserId: string; purpose?: string | null },
   names: Map<string, string>
 ): string {
-  return `${agent.name} (${names.get(agent.ownerUserId) ?? agent.ownerUserId}'s)`;
+  const owner = names.get(agent.ownerUserId) ?? agent.ownerUserId;
+  return `${agent.name} (${owner}'s${agent.purpose ? " " + agent.purpose : ""})`;
 }

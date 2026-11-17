@@ -70,3 +70,39 @@ export function Avatar({
     </span>
   );
 }
+
+const SLOT_COLORS = ["bg-zinc-600", "bg-sky-500", "bg-rose-500", "bg-emerald-500", "bg-amber-500", "bg-violet-500"];
+
+/**
+ * An agent looks like its owner (their picture, round) with a small square badge
+ * for the tool (CL / CX / GM). The badge colour tells one person's agents apart.
+ */
+export function AgentAvatar({
+  ownerName,
+  ownerAvatarUrl,
+  kind,
+  slot = 0,
+  size = 24,
+  ring = "ring-zinc-950",
+}: {
+  ownerName: string;
+  ownerAvatarUrl?: string | null;
+  kind?: string;
+  slot?: number;
+  size?: 20 | 24 | 32;
+  ring?: string;
+}) {
+  const big = size === 32;
+  return (
+    <span className="relative inline-flex shrink-0" aria-hidden>
+      <Avatar name={ownerName} avatarUrl={ownerAvatarUrl} size={size} />
+      <span
+        className={`absolute -bottom-1 -right-1.5 grid place-items-center rounded px-0.5 font-bold leading-none text-white ring-2 ${ring} ${
+          big ? "h-4 min-w-4 text-[9px]" : "h-3.5 min-w-3.5 text-[8px]"
+        } ${SLOT_COLORS[slot % SLOT_COLORS.length]}`}
+      >
+        {agentCode(kind)}
+      </span>
+    </span>
+  );
+}

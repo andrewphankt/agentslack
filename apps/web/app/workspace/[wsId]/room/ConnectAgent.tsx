@@ -34,7 +34,10 @@ export function ConnectAgent({
   onClose,
   mode = "default",
   connected = false,
+  askPurpose = false,
 }: {
+  /** True when this person already has an agent here: ask what the new one is for. */
+  askPurpose?: boolean;
   wsId: string;
   headers: HeadersInit;
   onClose: () => void;
@@ -48,6 +51,7 @@ export function ConnectAgent({
   onCloseRef.current = onClose;
   const [cmd, setCmd] = useState("");
   const [busy, setBusy] = useState(false);
+  const [purpose, setPurpose] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const firstRef = useRef<HTMLButtonElement>(null);
@@ -75,7 +79,7 @@ export function ConnectAgent({
       const res = await fetch(`/api/workspaces/${wsId}/agents`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ kind }),
+        body: JSON.stringify({ kind, purpose: askPurpose ? purpose : undefined }),
       });
       if (!res.ok) throw new Error();
       const { token } = (await res.json()) as { token: string };
@@ -171,6 +175,18 @@ export function ConnectAgent({
               </p>
             )}
             {!first && <div className="mb-3" />}
+            {askPurpose && (
+              <label className="mb-3 block text-xs text-zinc-400">
+                You already have an agent here. What is this one for?
+                <input
+                  value={purpose}
+                  onChange={(e) => setPurpose(e.target.value)}
+                  maxLength={24}
+                  placeholder="website"
+                  className="mt-1 block w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500"
+                />
+              </label>
+            )}
             <div className="flex flex-col gap-2">
               {KINDS.map((k, i) => (
                 <button

@@ -343,6 +343,7 @@ model Agent {
   ownerUserId String
   kind        String    // claude | codex | gemini | other
   name        String    // e.g. "Claude"
+  purpose     String?   // short name the owner gives a second agent, e.g. "website"
   tokenHash   String    @unique   // sha256 hex of the bearer token
   lastSeenAt  DateTime?
   lastPullAt  DateTime?

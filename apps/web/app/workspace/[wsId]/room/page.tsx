@@ -4,7 +4,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJsonHeaders } from "@/hooks/useActorUserId";
 import { AgentNote } from "./AgentNote";
-import { Avatar, agentCode } from "./Avatar";
+import { AgentAvatar, Avatar, agentCode } from "./Avatar";
 import { DemoSwitch } from "./DemoSwitch";
 import { ConnectAgent } from "./ConnectAgent";
 import { Invite } from "./Invite";
@@ -31,6 +31,11 @@ type AgentRow = {
   id: string;
   kind: string;
   label: string;
+  short: string;
+  purpose?: string | null;
+  ownerName: string;
+  ownerAvatarUrl?: string | null;
+  slot: number;
   mine: boolean;
   online: boolean;
   activeFile?: string | null;
@@ -375,6 +380,7 @@ export default function RoomPage() {
     () => new Map(agents.map((a) => [a.label, a.kind])),
     [agents]
   );
+  const agentByLabel = useMemo(() => new Map(agents.map((a) => [a.label, a])), [agents]);
 
   const orderedChannels = useMemo(
     () => applyOrder(channels.filter((c) => c.kind === "channel"), savedOrder),
@@ -502,9 +508,15 @@ export default function RoomPage() {
               key={a.id}
               className="group flex items-center gap-2 rounded px-2 py-1 text-sm text-zinc-400"
             >
-              <Avatar agent name={a.label} code={agentCode(a.kind)} size={20} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate">{a.label}</span>
+              <AgentAvatar
+                ownerName={a.ownerName}
+                ownerAvatarUrl={a.ownerAvatarUrl}
+                kind={a.kind}
+                slot={a.slot}
+                size={20}
+              />
+              <span className="min-w-0 flex-1 pl-1" title={a.label}>
+                <span className="block truncate">{a.short}</span>
                 {a.activeFile && (
                   <span className="block truncate text-xs text-zinc-500">{a.activeFile}</span>
                 )}
@@ -532,6 +544,7 @@ export default function RoomPage() {
           headers={headers}
           mode={firstConnect ? "first" : "default"}
           connected={prdArrived}
+          askPurpose={agents.some((a) => a.mine)}
           onClose={() => {
             setShowConnect(false);
             if (firstConnect) {
@@ -608,15 +621,25 @@ export default function RoomPage() {
           {grouped.map(({ m, collapse }) => (
             <div key={m.id} className={`flex gap-3 ${collapse ? "mt-0.5" : "mt-3"}`}>
               <div className="w-8 shrink-0">
-                {!collapse && (
-                  <Avatar
-                    name={m.authorName}
-                    avatarUrl={m.authorAvatarUrl}
-                    agent={m.isAgent}
-                    code={m.isAgent ? agentCode(agentKindByLabel.get(m.authorName)) : undefined}
-                    size={32}
-                  />
-                )}
+                {!collapse &&
+                  (m.isAgent && agentByLabel.get(m.authorName) ? (
+                    <AgentAvatar
+                      ownerName={agentByLabel.get(m.authorName)!.ownerName}
+                      ownerAvatarUrl={agentByLabel.get(m.authorName)!.ownerAvatarUrl}
+                      kind={agentByLabel.get(m.authorName)!.kind}
+                      slot={agentByLabel.get(m.authorName)!.slot}
+                      size={32}
+                      ring="ring-white"
+                    />
+                  ) : (
+                    <Avatar
+                      name={m.authorName}
+                      avatarUrl={m.authorAvatarUrl}
+                      agent={m.isAgent}
+                      code={m.isAgent ? agentCode(agentKindByLabel.get(m.authorName)) : undefined}
+                      size={32}
+                    />
+                  ))}
               </div>
               <div className="min-w-0 flex-1">
                 {!collapse && (
