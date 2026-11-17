@@ -157,6 +157,8 @@ export function PreviewPanel({
   const [netlifyId, setNetlifyId] = useState<string | null>(null);
   const [nSites, setNSites] = useState<{ id: string; name: string; url: string | null; match: boolean }[] | null>(null);
   const [nBusy, setNBusy] = useState(false);
+  /** The Netlify sign-in window is open and we are waiting for it. */
+  const [nWait, setNWait] = useState(false);
   const nToken = useRef<string | null>(null);
   useEffect(() => {
     let live = true;
@@ -196,6 +198,7 @@ export function PreviewPanel({
         setLinkErr("Connected. In Netlify, also switch on the draft preview for this project if the page stays empty.");
     } finally {
       setNBusy(false);
+      setNWait(false);
     }
   }
 
@@ -212,6 +215,8 @@ export function PreviewPanel({
       state,
     });
     window.open(`https://app.netlify.com/authorize?${q}`, "as-netlify", "width=620,height=760");
+    setLinkErr(null);
+    setNWait(true);
   }
   useEffect(() => {
     const on = (e: MessageEvent) => {
@@ -487,21 +492,6 @@ export function PreviewPanel({
                       {linkErr}
                     </p>
                   )}
-                  <div className="flex gap-5 text-[13px] text-zinc-500">
-                    <button type="button" className={`rounded hover:text-zinc-900 ${focus}`} onClick={() => setHost("other")}>
-                      Paste a Link
-                    </button>
-                    <button
-                      type="button"
-                      className={`rounded hover:text-zinc-900 ${focus}`}
-                      onClick={() => {
-                        setSkipped(true);
-                        setEditing(false);
-                      }}
-                    >
-                      Skip
-                    </button>
-                  </div>
                 </div>
               </>
             ) : (
@@ -561,9 +551,35 @@ export function PreviewPanel({
                           </div>
                         </>
                       ) : (
-                        <button type="button" disabled={nBusy} className={`${solid} h-10 w-full`} onClick={netlifySignIn}>
-                          {nBusy ? "Connecting…" : "Connect Netlify"}
-                        </button>
+                        nWait || nBusy ? (
+                          <div className="overflow-hidden rounded-md border border-zinc-200 text-sm" aria-live="polite">
+                            <div className={`flex min-h-11 items-center gap-3 px-4 font-medium ${nBusy ? "" : "text-zinc-500"}`}>
+                              {nBusy ? (
+                                <span className="grid h-[18px] w-[18px] place-items-center rounded-[5px] bg-zinc-900 text-white">
+                                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                    <path d="M5 12.5l4.5 4.5L19 7.5" />
+                                  </svg>
+                                </span>
+                              ) : (
+                                <span className="h-[18px] w-[18px] rounded-[5px] border border-zinc-300" />
+                              )}
+                              Signed In
+                            </div>
+                            <div className="flex min-h-11 items-center gap-3 border-t border-zinc-200 px-4 font-medium text-zinc-500">
+                              <span aria-hidden className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-zinc-200 border-t-zinc-900 motion-reduce:animate-none" />
+                              <span className="flex-1">{nBusy ? "Connecting Netlify" : "Waiting for Netlify"}</span>
+                              {!nBusy && (
+                                <button type="button" className={`rounded text-[13px] underline hover:text-zinc-900 ${focus}`} onClick={netlifySignIn}>
+                                  Open Again
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <button type="button" className={`${solid} h-10 w-full`} onClick={netlifySignIn}>
+                            Connect Netlify
+                          </button>
+                        )
                       )}
                     </div>
                   )}

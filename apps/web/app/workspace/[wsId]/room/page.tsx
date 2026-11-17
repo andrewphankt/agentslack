@@ -28,6 +28,7 @@ type Msg = {
   imageKind?: string;
   isAgent?: boolean;
   edited?: boolean;
+  reply?: { id: string; name: string; text: string } | null;
   title?: string | null;
   items?: { what: string; who: string }[] | null;
   type?: string;
@@ -72,6 +73,21 @@ const TRASH = (
     <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" />
   </svg>
 );
+const REPLY = (
+  <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M8 5L3.5 9.5 8 14" />
+    <path d="M3.5 9.5H11a5.5 5.5 0 0 1 5.5 5.5" />
+  </svg>
+);
+/** Scroll to a message and mark it for a moment. */
+function showMessage(id: string) {
+  const el = document.getElementById(`msg-${id}`);
+  if (!el) return;
+  el.scrollIntoView({ block: "center", behavior: "smooth" });
+  el.classList.remove("msg-flash");
+  void el.offsetWidth;
+  el.classList.add("msg-flash");
+}
 const PENCIL = (
   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />
@@ -133,6 +149,7 @@ export default function RoomPage() {
   const [editText, setEditText] = useState("");
   const [card, setCard] = useState<{ userId: string; x: number; y: number } | null>(null);
   const [picture, setPicture] = useState<{ file: File; url: string } | null>(null);
+  const [replyTo, setReplyTo] = useState<Msg | null>(null);
   const [savedOrder, saveOrder] = useSavedOrder(me ? `as:channel-order:${wsId}:${me}` : null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [agents, setAgents] = useState<AgentRow[]>([]);
@@ -679,7 +696,7 @@ export default function RoomPage() {
       }
       const res = await api(`/channels/${current.id}/messages`, {
         method: "POST",
-        body: JSON.stringify({ text: body, imageId }),
+        body: JSON.stringify({ text: body, imageId, replyTo: replyTo?.id }),
       });
       if (!res.ok) return setErr("Message failed to send");
       const { message } = (await res.json()) as { message: Msg };
@@ -687,6 +704,7 @@ export default function RoomPage() {
       setText("");
       if (picture) URL.revokeObjectURL(picture.url);
       setPicture(null);
+      setReplyTo(null);
       stickRef.current = true;
       setMessages((p) => mergeMsgs(p, [message]));
     } finally {
@@ -771,6 +789,8 @@ export default function RoomPage() {
   const shownMembers = others.slice(0, 5);
   const mine = members.find((m) => m.userId === me);
   const myAgent = agents.find((a) => a.mine)?.name ?? null;
+  // With several agents of your own, a request goes to whichever one you talk to next, so no single name is promised.
+  const askAgent = agents.filter((a) => a.mine).length > 1 ? "Your Agent" : myAgent;
   const memberNames = useMemo(
     () => [...members.map((m) => m.name), ...new Set(agents.map((a) => a.name))],
     [members, agents]
@@ -1159,7 +1179,7 @@ export default function RoomPage() {
           avatars={avatarByName}
           onSaveLinks={saveLinks}
           onGoLive={goLive}
-          agent={myAgent}
+          agent={askAgent}
           onAskAgent={askAgent}
           roomApi={api}
         />
@@ -1210,7 +1230,7 @@ export default function RoomPage() {
             const who = m.isAgent ? ag?.ownerUserId : m.authorUserId;
             const own = !m.isAgent && m.authorUserId === me;
             return (
-              <div key={m.id} className={`group relative -mx-4 flex gap-3 px-4 py-0.5 hover:bg-zinc-50 ${collapse ? (feed ? "mt-1.5" : "") : feed ? "mt-4" : "mt-2.5"}`}>
+              <div key={m.id} id={`msg-${m.id}`} className={`group relative -mx-4 flex gap-3 px-4 py-0.5 hover:bg-zinc-50 ${collapse ? (feed ? "mt-1.5" : "") : feed ? "mt-4" : "mt-2.5"}`}>
                 <div className="w-8 shrink-0">
                   {collapse ? (
                     <span className="hidden pt-0.5 text-right text-[10px] leading-4 text-zinc-400 group-hover:block">{hhmm(m.createdAt)}</span>
@@ -1291,6 +1311,17 @@ export default function RoomPage() {
                   ) : m.isAgent && (m.type === undefined || m.type === "note") ? (
                     <AgentNote text={m.text} />
                   ) : (
+                    <>
+                    {m.reply && (
+                      <button
+                        type="button"
+                        onClick={() => showMessage(m.reply!.id)}
+                        className="mb-0.5 flex max-w-full items-center gap-1.5 rounded border-l-2 border-zinc-300 pl-2 text-left text-[13px] text-zinc-500 hover:border-zinc-900 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
+                      >
+                        <span className="shrink-0 font-semibold">{m.reply.name}</span>
+                        <span className="truncate">{m.reply.text}</span>
+                      </button>
+                    )}
                     <MessageBody
                       text={m.text}
                       imageUrl={m.imageUrl}
@@ -1299,12 +1330,25 @@ export default function RoomPage() {
                       onLoaded={keepPinned}
                       mentions={memberNames}
                     />
+                    </>
                   )}
                   {m.edited && editId !== m.id && <span className="text-[11px] text-zinc-400">edited</span>}
                 </div>
-                {own && editId !== m.id && (
+                {!feed && editId !== m.id && (
                   <div className="absolute -top-3 right-4 hidden overflow-hidden rounded border border-zinc-200 bg-white group-focus-within:flex group-hover:flex">
-                    {m.text && (
+                    <button
+                      type="button"
+                      aria-label="Reply"
+                      title="Reply"
+                      className="grid h-7 w-7 place-items-center text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                      onClick={() => {
+                        setReplyTo(m);
+                        document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus();
+                      }}
+                    >
+                      {REPLY}
+                    </button>
+                    {own && m.text && (
                       <button
                         type="button"
                         aria-label="Edit message"
@@ -1318,6 +1362,7 @@ export default function RoomPage() {
                         {PENCIL}
                       </button>
                     )}
+                    {own && (
                     <button
                       type="button"
                       aria-label="Delete message"
@@ -1327,6 +1372,7 @@ export default function RoomPage() {
                     >
                       {TRASH}
                     </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1348,6 +1394,21 @@ export default function RoomPage() {
             attach(e.dataTransfer.files?.[0]);
           }}
         >
+          {replyTo && (
+            <div className="mb-2 flex items-center gap-2 rounded border-l-2 border-zinc-900 bg-zinc-50 py-1.5 pl-2.5 pr-1.5 text-[13px] text-zinc-600">
+              <span className="shrink-0 text-zinc-500">Replying to</span>
+              <span className="shrink-0 font-semibold text-zinc-900">{replyTo.authorName}</span>
+              <span className="min-w-0 flex-1 truncate">{replyTo.text || replyTo.title || (replyTo.imageUrl ? "Picture" : "")}</span>
+              <button
+                type="button"
+                aria-label="Cancel reply"
+                className="grid h-6 w-6 shrink-0 place-items-center rounded text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
+                onClick={() => setReplyTo(null)}
+              >
+                ×
+              </button>
+            </div>
+          )}
           {picture && (
             <div className="mb-2 inline-flex items-start gap-1">
               {picture.file.type.startsWith("video/") ? (

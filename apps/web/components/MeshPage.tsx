@@ -30,9 +30,9 @@ export function MeshMark({ size = 18, dots = 34, className = "" }: { size?: numb
 /** The product's name, set the same way everywhere. */
 export function Wordmark({ className = "", mark = true }: { className?: string; mark?: boolean }) {
   return (
-    <span className={`inline-flex items-center gap-2 font-bold uppercase tracking-[0.14em] text-zinc-900 ${className}`}>
-      {mark && <MeshMark />}
-      Mesh
+    <span className={`inline-flex items-center text-zinc-900 ${className}`}>
+      {mark && <MeshMark size={22} />}
+      <span className={mark ? "sr-only" : "font-bold uppercase tracking-[0.14em]"}>Mesh</span>
     </span>
   );
 }

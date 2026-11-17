@@ -44,7 +44,8 @@ function shape(
   avatars: Map<string, string | null>,
   mimes: Map<string, string>
 ) {
-  const content = m.content as { text?: unknown; imageId?: unknown; editedAt?: unknown; title?: unknown; items?: unknown } | null;
+  const content = m.content as { text?: unknown; imageId?: unknown; editedAt?: unknown; title?: unknown; items?: unknown; reply?: unknown } | null;
+  const reply = content?.reply as { id?: unknown; name?: unknown; text?: unknown } | null | undefined;
   const text = content?.text;
   const imageId = content?.imageId;
   return {
@@ -63,6 +64,10 @@ function shape(
     title: typeof content?.title === "string" ? content.title : null,
     items: Array.isArray(content?.items) ? (content.items as { what: string; who: string }[]) : null,
     edited: typeof content?.editedAt === "string",
+    reply:
+      reply && typeof reply.id === "string"
+        ? { id: reply.id, name: typeof reply.name === "string" ? reply.name : "", text: typeof reply.text === "string" ? reply.text : "" }
+        : null,
     type: m.type,
     text: typeof text === "string" ? text : "",
     createdAt: m.createdAt.toISOString(),
@@ -115,7 +120,7 @@ export async function POST(req: Request, ctx: Ctx) {
   const r = await load(req, ctx);
   if (!r.ok) return r.res;
   const { userId, channel } = r.ok;
-  const body = (await req.json().catch(() => ({}))) as { text?: unknown; imageId?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { text?: unknown; imageId?: unknown; replyTo?: unknown };
   const text = typeof body.text === "string" ? body.text.trim() : "";
   let imageId: string | null = null;
   if (typeof body.imageId === "string" && body.imageId) {
@@ -133,6 +138,20 @@ export async function POST(req: Request, ctx: Ctx) {
       { status: 400 }
     );
   }
+  // A reply keeps a short copy of what it answers, so the quote shows even if that message goes away.
+  let reply: { id: string; name: string; text: string } | null = null;
+  if (typeof body.replyTo === "string" && body.replyTo) {
+    const to = await prisma.collaborationMessage.findFirst({
+      where: { id: body.replyTo, channelId: channel.id },
+      select: { id: true, authorUserId: true, authorAgentId: true, fromAgent: true, content: true },
+    });
+    if (to) {
+      const c = to.content as { text?: unknown; title?: unknown; imageId?: unknown } | null;
+      const said = typeof c?.text === "string" && c.text.trim() ? c.text.trim() : typeof c?.title === "string" ? c.title : c?.imageId ? "Picture" : "";
+      const who = to.authorAgentId ? to.fromAgent : (to.authorUserId && (await displayNames(ctx.params.wsId)).get(to.authorUserId)) || "Someone";
+      reply = { id: to.id, name: who, text: said.replace(/\s+/g, " ").slice(0, 160) };
+    }
+  }
   const row = await prisma.collaborationMessage.create({
     data: {
       workspaceId: ctx.params.wsId,
@@ -141,7 +160,7 @@ export async function POST(req: Request, ctx: Ctx) {
       type: "chat",
       fromAgent: userId,
       toTarget: channel.kind === "dm" ? "dm" : "#" + channel.name,
-      content: imageId ? { text, imageId } : { text },
+      content: { text, ...(imageId ? { imageId } : {}), ...(reply ? { reply } : {}) },
       messageId: randomUUID(),
     },
   });
