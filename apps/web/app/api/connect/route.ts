@@ -66,7 +66,18 @@ cd "$CLAUDE_PROJECT_DIR" 2>/dev/null || exit 0
 T=$(git config --local agentslack.token 2>/dev/null)
 U=$(git config --local agentslack.url 2>/dev/null)
 [ -n "$T" ] && [ -n "$U" ] || exit 0
-curl -fsS --max-time 3 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" --data-binary @- "$U/api/hook/prompt" 2>/dev/null
+code=$(curl -sS --max-time 3 -o .agentslack/prompt.out -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" --data-binary @- "$U/api/hook/prompt" 2>/dev/null)
+if [ "$code" = "401" ]; then
+  # This agent was disconnected in the room: forget the key and drop the room's tools,
+  # so nothing stale is left behind and connecting again starts clean.
+  rm -f .agentslack/prompt.out
+  git config --local --unset agentslack.token >/dev/null 2>&1
+  command -v claude >/dev/null 2>&1 && claude mcp remove agentslack >/dev/null 2>&1
+  echo "ROOM: this agent was disconnected from the team room. Nothing is being saved or shared now. To connect again, press + next to Agents in the room and paste the new message here."
+  exit 0
+fi
+[ "$code" = "200" ] && cat .agentslack/prompt.out 2>/dev/null
+rm -f .agentslack/prompt.out
 [ -f .agentslack/no-pull ] && exit 0
 before=$(git rev-parse HEAD 2>/dev/null) || exit 0
 if ! git pull -q --rebase --autostash origin draft >/dev/null 2>&1; then
