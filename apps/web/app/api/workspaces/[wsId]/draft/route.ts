@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { actorUserIdFromWorkspaceAuth } from "@/lib/auth";
 import { broadcastWorkspaceEvent } from "@/lib/realtime/broadcast";
 import { displayNames, errStatus } from "@/lib/chat";
+import { cleanUrl } from "@/lib/links";
 import { draftStatus, githubTokenFor, repoForWorkspace, type DraftStatus } from "@/lib/github/draft";
 
 type Ctx = { params: { wsId: string } };
@@ -48,23 +49,6 @@ export async function GET(req: Request, ctx: Ctx) {
 }
 
 /** Empty clears; otherwise https, or http on localhost for testing. */
-function cleanUrl(v: unknown): string | null | undefined {
-  if (v === undefined) return undefined;
-  if (typeof v !== "string") throw new Error("Link must be text");
-  const s = v.trim();
-  if (!s) return null;
-  if (s.length > 300) throw new Error("Link is too long");
-  let u: URL;
-  try {
-    u = new URL(s);
-  } catch {
-    throw new Error("That does not look like a link");
-  }
-  const local = u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1");
-  if (u.protocol !== "https:" && !local) throw new Error("The link must start with https://");
-  return s;
-}
-
 export async function PATCH(req: Request, ctx: Ctx) {
   const { wsId } = ctx.params;
   const a = await auth(req, wsId);

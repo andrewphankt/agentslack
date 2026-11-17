@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { agentFromBearer, agentLabel } from "@/lib/agents";
 import { displayNames } from "@/lib/chat";
+import { cleanUrl } from "@/lib/links";
+import { postPersonNote } from "@/lib/hooks";
 import { broadcastWorkspaceEvent } from "@/lib/realtime/broadcast";
 import { queryWorkspaceContext } from "@/lib/context/retriever";
 
@@ -83,6 +85,19 @@ const TOOLS = [
         to: { type: "string", description: "New channel name" },
       },
       required: ["from", "to"],
+    },
+  },
+  {
+    name: "set_preview",
+    description:
+      "Tell the room where the team's work in progress can be seen. Call this after you set up a preview of the draft branch on a host (Vercel, Netlify, Railway, Cloudflare or any other). Everyone in the room then sees that page in the Preview tab.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        preview_url: { type: "string", description: "The https link that shows the draft branch" },
+        live_url: { type: "string", description: "The public site's link, if there is one" },
+      },
+      required: ["preview_url"],
     },
   },
   {
@@ -351,6 +366,25 @@ async function renameChannel(agent: Agent, args: Record<string, unknown>): Promi
   return text(`Renamed #${from} to #${to}.`);
 }
 
+async function setPreview(agent: Agent, args: Record<string, unknown>): Promise<ToolResult> {
+  let previewUrl: string | null | undefined;
+  let liveUrl: string | null | undefined;
+  try {
+    previewUrl = cleanUrl(args.preview_url);
+    liveUrl = cleanUrl(args.live_url);
+  } catch (e) {
+    return text((e as Error).message, true);
+  }
+  if (!previewUrl) return text("preview_url is required", true);
+  await prisma.workspace.update({
+    where: { id: agent.workspaceId },
+    data: { previewUrl, ...(liveUrl ? { liveUrl } : {}) },
+  });
+  await postPersonNote(agent.workspaceId, agent.ownerUserId, `Set the preview to ${previewUrl} (through their agent).`);
+  await broadcastWorkspaceEvent(agent.workspaceId, { type: "draft_changed" });
+  return text("Saved. The whole room now sees this page in the Preview tab.");
+}
+
 async function callTool(agent: Agent, params: Record<string, unknown>): Promise<ToolResult> {
   const args = (params.arguments ?? {}) as Record<string, unknown>;
   try {
@@ -362,6 +396,7 @@ async function callTool(agent: Agent, params: Record<string, unknown>): Promise<
     if (params.name === "list_channels") return await listChannels(agent);
     if (params.name === "post_to_channel") return await postToChannel(agent, args);
     if (params.name === "rename_channel") return await renameChannel(agent, args);
+    if (params.name === "set_preview") return await setPreview(agent, args);
     return text(`Unknown tool: ${String(params.name)}`, true);
   } catch {
     return text("Tool failed.", true);

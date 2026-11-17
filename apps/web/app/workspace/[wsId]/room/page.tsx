@@ -226,6 +226,13 @@ export default function RoomPage() {
     return null;
   }
 
+  async function askAgent(host: string): Promise<string | null> {
+    const res = await api("/agents/ask", { method: "POST", body: JSON.stringify({ host }) });
+    if (res.ok) return null;
+    const j = (await res.json().catch(() => ({}))) as { error?: string };
+    return j.error ?? "Could not reach your agent";
+  }
+
   async function goLive(upTo?: string): Promise<string | null> {
     const fallback = "The site did not respond. Try again in a minute.";
     try {
@@ -640,6 +647,16 @@ export default function RoomPage() {
     }
   }
 
+  async function sendNow(body: string) {
+    if (!current || !body.trim()) return;
+    const res = await api(`/channels/${current.id}/messages`, { method: "POST", body: JSON.stringify({ text: body.trim() }) });
+    if (!res.ok) return setErr("Message failed to send");
+    const { message } = (await res.json()) as { message: Msg };
+    setErr(null);
+    stickRef.current = true;
+    setMessages((p) => mergeMsgs(p, [message]));
+  }
+
   const isFeed = current?.kind === "channel" && FEEDS.has(current.name);
   type Shown = { sep: string; m?: undefined; collapse?: undefined } | { sep?: undefined; m: Msg; collapse: boolean };
   const grouped = useMemo<Shown[]>(() => {
@@ -1017,6 +1034,8 @@ export default function RoomPage() {
           avatars={avatarByName}
           onSaveLinks={saveLinks}
           onGoLive={goLive}
+          agent={myAgent}
+          onAskAgent={askAgent}
         />
       ) : (
       <>
@@ -1285,6 +1304,7 @@ export default function RoomPage() {
             names={memberNames}
             agent={myAgent}
             gifSearch={gifSearch}
+            onSendNow={(t) => void sendNow(t)}
           />
         </div>
         )}

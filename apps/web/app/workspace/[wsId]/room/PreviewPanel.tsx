@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Avatar } from "./Avatar";
 import { LOGO } from "./logos";
+import { setupPrompt } from "@/lib/previewSetup";
 
 export type DraftInfo = {
   repo: string | null;
@@ -30,6 +31,10 @@ type Props = {
   avatars: Map<string, string | null>;
   onSaveLinks: (patch: { previewUrl?: string; liveUrl?: string }) => Promise<string | null>;
   onGoLive: (upTo?: string) => Promise<string | null>;
+  /** Your own agent's name, if you have one in the room. */
+  agent?: string | null;
+  /** Leaves a request for your agent to set up the preview on this host. */
+  onAskAgent: (host: string) => Promise<string | null>;
 };
 
 const focus = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1";
@@ -92,7 +97,7 @@ function whyNot(d: DraftInfo): string {
 }
 
 /** The Preview tab: the team's work so far in a browser, with what is new listed underneath. */
-export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLinks, onGoLive }: Props) {
+export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLinks, onGoLive, agent, onAskAgent }: Props) {
   const [iframeKey, setIframeKey] = useState(0);
   const [view, setView] = useState<View>("desktop");
   const [listH, setListH] = useState(190);
@@ -126,6 +131,9 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
   const [later, setLater] = useState(false);
   const [skipped, setSkipped] = useState(false);
   const [sure, setSure] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [asked, setAsked] = useState(false);
+  useEffect(() => setAsked(false), [host]);
   const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Parent bumps reloadKey after a change reaches the room.
@@ -288,6 +296,50 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
               </>
             ) : (
               <div className="w-full max-w-md rounded-md border border-zinc-200 bg-white p-4">
+                {picked && setupPrompt(picked.key) && (
+                  <div className="mb-4 border-b border-zinc-200 pb-4">
+                    <p className="text-sm font-semibold">Let your agent set it up</p>
+                    {asked ? (
+                      <p role="status" className="mt-1 text-sm text-zinc-700">
+                        Sent to {agent}. Say anything to it, even just <span className="font-semibold">go</span>, and it starts. The preview shows up here by itself.
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-xs text-zinc-500">
+                        It sets up {picked.name}, and the preview shows up here for the whole team by itself.
+                      </p>
+                    )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {agent && !asked && (
+                        <button
+                          type="button"
+                          disabled={saving}
+                          className={solid}
+                          onClick={async () => {
+                            setLinkErr(null);
+                            const err = await onAskAgent(picked.key);
+                            if (err) setLinkErr(err);
+                            else setAsked(true);
+                          }}
+                        >
+                          Ask {agent} to Set It Up
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className={agent && !asked ? ghost : asked ? ghost : solid}
+                        onClick={() => {
+                          void navigator.clipboard?.writeText(setupPrompt(picked.key) ?? "").then(() => {
+                            setCopied(true);
+                            setTimeout(() => setCopied(false), 2000);
+                          });
+                        }}
+                      >
+                        {copied ? "Copied" : agent ? "Copy Instead" : "Copy for My Agent"}
+                      </button>
+                    </div>
+                    <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">Or paste the link yourself</p>
+                  </div>
+                )}
                 <label className="block text-sm font-semibold" htmlFor="pv-link">
                   {picked ? `Your ${picked.name} link` : "Link to your team's work in progress"}
                 </label>

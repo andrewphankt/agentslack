@@ -24,6 +24,7 @@ export function Composer({
   names,
   agent,
   gifSearch,
+  onSendNow,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -37,6 +38,8 @@ export function Composer({
   /** Your own agent's name: adds a button that starts a message to it. */
   agent?: string | null;
   /** Searches GIFs. `on: false` means search is not set up, so the box takes a link. */
+  /** Sends this text as its own message right away, leaving the box untouched. */
+  onSendNow?: (text: string) => void;
   gifSearch?: (q: string) => Promise<{ on: boolean; items: Gif[] }>;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -48,6 +51,20 @@ export function Composer({
   const [gifOpen, setGifOpen] = useState(false);
   const [gif, setGif] = useState("");
   const [gifBad, setGifBad] = useState(false);
+  // The file window takes a moment to appear: the button stays pressed and spins until it
+  // closes (the page gets focus back), so the click visibly did something.
+  const [opening, setOpening] = useState(false);
+  useEffect(() => {
+    if (!opening) return;
+    const done = () => setOpening(false);
+    const t = setTimeout(done, 15_000);
+    const arm = setTimeout(() => window.addEventListener("focus", done), 400);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(arm);
+      window.removeEventListener("focus", done);
+    };
+  }, [opening]);
   const [gifOn, setGifOn] = useState(false);
   const [gifs, setGifs] = useState<Gif[]>([]);
 
@@ -69,8 +86,11 @@ export function Composer({
     };
   }, [gifOpen, gif, gifSearch]);
 
+  // Nothing typed yet: the GIF is the message, so it goes out on the click. Otherwise it
+  // joins what is being written.
   function put(url: string) {
-    onChange(value.trim() ? `${value.trimEnd()} ${url}` : url);
+    if (!value.trim() && onSendNow) onSendNow(url);
+    else onChange(`${value.trimEnd()} ${url}`);
     setGif("");
     setGifBad(false);
     setGifOpen(false);
@@ -162,6 +182,7 @@ export function Composer({
           accept="image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm,video/quicktime"
           className="hidden"
           onChange={(e) => {
+            setOpening(false);
             onFile(e.target.files?.[0]);
             e.target.value = "";
           }}
@@ -171,12 +192,20 @@ export function Composer({
           aria-label="Add a picture or video"
           title="Add a picture or video (or paste or drop one)"
           disabled={disabled}
-          onClick={() => fileRef.current?.click()}
-          className={`${iconBtn} text-xl leading-none`}
+          aria-busy={opening}
+          onClick={() => {
+            setOpening(true);
+            fileRef.current?.click();
+          }}
+          className={`${iconBtn} text-xl leading-none ${opening ? "bg-zinc-900 !text-white hover:bg-zinc-900" : ""}`}
         >
-          <span aria-hidden className="-mt-0.5">
-            +
-          </span>
+          {opening ? (
+            <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white motion-reduce:animate-none" />
+          ) : (
+            <span aria-hidden className="-mt-0.5">
+              +
+            </span>
+          )}
         </button>
         <textarea
           ref={ref}
