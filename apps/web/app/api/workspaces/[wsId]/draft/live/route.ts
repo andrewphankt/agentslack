@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { actorUserIdFromWorkspaceAuth } from "@/lib/auth";
 import { broadcastWorkspaceEvent } from "@/lib/realtime/broadcast";
 import { displayNames, errStatus } from "@/lib/chat";
-import { postPersonNote } from "@/lib/hooks";
+import { postPersonNote, postUpdate } from "@/lib/hooks";
 import { draftStatus, githubTokenFor, goLive, repoForWorkspace } from "@/lib/github/draft";
 
 const MESSAGES = {
@@ -32,6 +32,8 @@ export async function POST(req: Request, ctx: { params: { wsId: string } }) {
   } catch (e) {
     return NextResponse.json({ error: "Unauthorized" }, { status: errStatus(e) });
   }
+  const body = (await req.json().catch(() => ({}))) as { upTo?: unknown };
+  let upTo = typeof body.upTo === "string" ? body.upTo : "";
   const [repo, token, names] = await Promise.all([
     repoForWorkspace(wsId),
     githubTokenFor(me),
@@ -43,27 +45,31 @@ export async function POST(req: Request, ctx: { params: { wsId: string } }) {
 
   // Who is in the draft, taken just before sending it.
   let count = 0;
-  let who: string[] = [];
+  let items: { what: string; who: string }[] = [];
   try {
     const st = await draftStatus(token, repo.owner, repo.repo);
     count = st.ahead;
-    who = [...new Set(st.changes.map((c) => c.who))];
+    // Changes are newest first: the line keeps everything above it for later.
+    const at = upTo ? st.changes.findIndex((c) => c.sha === upTo) : 0;
+    if (at < 0) upTo = "";
+    items = st.changes
+      .slice(Math.max(0, at))
+      .filter((c) => !/^Merge /.test(c.message))
+      .map((c) => ({ what: c.message === "Saved turn" || !c.message ? "Saved work" : c.message, who: c.who }));
   } catch {
     /* the note below falls back to a plain sentence */
   }
 
-  const r = await goLive(token, repo.owner, repo.repo, myName);
+  const r = await goLive(token, repo.owner, repo.repo, myName, upTo || undefined);
   if (!r.ok) return fail(r.reason);
 
   await prisma.workspace.update({
     where: { id: wsId },
     data: { lastLiveAt: new Date(), lastLiveBy: me },
   });
-  const text =
-    count > 0
-      ? `Sent the draft live. ${count} ${count === 1 ? "change" : "changes"}${who.length ? ` from ${list(who)}` : ""}.`
-      : "Sent the draft live.";
-  await postPersonNote(wsId, me, text);
+  if (!items.length) items = [{ what: count > 0 ? `${count} saved ${count === 1 ? "change" : "changes"}` : "Published", who: myName }];
+  const title = await postUpdate(wsId, me, items);
+  await postPersonNote(wsId, me, `Published ${title}.`);
   await broadcastWorkspaceEvent(wsId, { type: "draft_changed" });
   return NextResponse.json({ ok: true });
 }

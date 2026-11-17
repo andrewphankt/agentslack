@@ -200,9 +200,16 @@ export default async function HomePage({
   const raw = searchParams?.next ?? "";
   const next = /^\/(?!\/)[^\\]*$/.test(raw) && !raw.includes("://") ? raw : "";
   const userId = await signedInUserId();
-  if (!userId) return <SignedOutLanding next={next || "/"} />;
+  if (!userId) {
+    const code = /^\/join\/([A-Za-z0-9_-]+)$/.exec(next)?.[1];
+    const room = code
+      ? await prisma.workspace.findUnique({ where: { inviteCode: code }, select: { name: true } })
+      : null;
+    return <SignedOutLanding next={next || "/"} invitedTo={room?.name} />;
+  }
   if (next && next !== "/") redirect(next);
-  // Signed in: straight into the room you opened last. `/?rooms=1` still shows every room.
+  // Signed in: straight into the room you opened last. The old page listing every room is retired.
+  if (searchParams?.rooms) redirect("/");
   if (!searchParams?.rooms) {
     const memberships = await prisma.workspaceMember.findMany({
       where: { userId },
@@ -236,7 +243,7 @@ export default async function HomePage({
         style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 200, height: 44, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 1.8rem", background: "var(--color-nav)", backdropFilter: "blur(10px)", borderBottom: "1px solid var(--color-border)" }}
       >
         <span style={{ fontFamily: display, fontWeight: 700, fontSize: "0.95rem", color: "var(--color-ink)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-          AgentSlack
+          Mesh
         </span>
         {userId && (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

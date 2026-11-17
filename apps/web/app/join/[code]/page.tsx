@@ -1,16 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { MeshPage, STEPS_JOIN, meshGhost, meshTitle } from "@/components/MeshPage";
 import { useJsonHeaders } from "@/hooks/useActorUserId";
 
+/** An invite link: join, then straight into the room. The room says "Joined". */
 export default function JoinPage() {
   const params = useParams();
   const code = params.code as string;
   const router = useRouter();
   const headers = useJsonHeaders();
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState<{ kind: string; room: string } | null>(null);
   const started = useRef(false);
 
   useEffect(() => {
@@ -27,17 +29,16 @@ export default function JoinPage() {
           workspaceId?: string;
           error?: string;
           repoAccess?: string;
+          alreadyMember?: boolean;
         };
         if (!res.ok || !j.workspaceId) {
-          setError(j.error ?? "Could not join this room.");
+          setError(res.status === 404 ? "This invite link does not work. Ask your teammate to copy it again." : (j.error ?? "Could not join this room."));
           return;
         }
-        const room = `/workspace/${j.workspaceId}/room`;
-        if (j.repoAccess === "invited" || j.repoAccess === "failed") {
-          setNotice({ kind: j.repoAccess, room });
-          return;
-        }
-        router.replace(room);
+        const q = j.alreadyMember
+          ? ""
+          : `?joined=${j.repoAccess === "invited" || j.repoAccess === "failed" ? j.repoAccess : "1"}`;
+        router.replace(`/workspace/${j.workspaceId}/room${q}`);
       } catch {
         setError("Could not join this room.");
       }
@@ -45,31 +46,24 @@ export default function JoinPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (notice) {
-    return (
-      <main className="grid min-h-[60vh] place-items-center p-6 text-sm">
-        <div className="max-w-sm text-center">
-          <p className="text-zinc-200">You joined the room.</p>
-          <p className="mt-2 text-zinc-400">
-            {notice.kind === "invited"
-              ? "GitHub sent you an invitation to the project. Accept it in your GitHub notifications or email so your agent can save its work."
-              : "We could not give you edit access to the project on GitHub. Ask the person who made the room to add you there."}
-          </p>
-          <button
-            type="button"
-            onClick={() => router.replace(notice.room)}
-            className="mt-4 rounded-md bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-500"
-          >
-            Open the room
-          </button>
-        </div>
-      </main>
-    );
-  }
-
   return (
-    <main className="grid min-h-[60vh] place-items-center p-6 text-sm">
-      {error ? <p className="text-red-400">{error}</p> : <p className="text-zinc-400">Joining…</p>}
-    </main>
+    <MeshPage step={2} labels={STEPS_JOIN}>
+      {error ? (
+        <>
+          <h1 className={meshTitle}>That link did not work</h1>
+          <p role="alert" className="text-center text-sm text-zinc-600">
+            {error}
+          </p>
+          <Link href="/" className={meshGhost}>
+            Back to Mesh
+          </Link>
+        </>
+      ) : (
+        <p role="status" className="flex items-center gap-3 text-zinc-500">
+          <span aria-hidden className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-zinc-200 border-t-zinc-900 motion-reduce:animate-none" />
+          Joining
+        </p>
+      )}
+    </MeshPage>
   );
 }

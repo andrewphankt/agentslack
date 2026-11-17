@@ -106,16 +106,28 @@ export async function POST(req: Request, ctx: { params: { wsId: string } }) {
     return NextResponse.json({ error: "Bad kind" }, { status: 400 });
   }
   const token = newAgentToken();
-  const row = await prisma.agent.create({
-    data: {
-      workspaceId: wsId,
-      ownerUserId: me,
-      kind,
-      name: NAMES[kind],
-      purpose,
-      tokenHash: hashAgentToken(token),
-    },
-  });
+  // One agent of each type per person in a room: connecting again hands the same agent a new key.
+  const had = purpose
+    ? null
+    : await prisma.agent.findFirst({
+        where: { workspaceId: wsId, ownerUserId: me, kind, purpose: null },
+        orderBy: { createdAt: "asc" },
+      });
+  const row = had
+    ? await prisma.agent.update({
+        where: { id: had.id },
+        data: { tokenHash: hashAgentToken(token), lastSeenAt: null },
+      })
+    : await prisma.agent.create({
+        data: {
+          workspaceId: wsId,
+          ownerUserId: me,
+          kind,
+          name: NAMES[kind],
+          purpose,
+          tokenHash: hashAgentToken(token),
+        },
+      });
   const names = await displayNames(wsId);
   await broadcastWorkspaceEvent(wsId, { type: "agents_changed" });
   const repo = await repoForWorkspace(wsId);

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { AmbientBackground } from "@/components/AmbientBackground";
+import { GitHubIcon, MeshPage, meshFocus, meshGhost, meshInput, meshQuiet, meshSolid, meshTitle } from "@/components/MeshPage";
 import { useJsonHeaders } from "@/hooks/useActorUserId";
 
 type Repo = {
@@ -16,10 +16,14 @@ export default function StartPage() {
   const router = useRouter();
   const headers = useJsonHeaders();
   const [repos, setRepos] = useState<Repo[] | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [filter, setFilter] = useState("");
   const [link, setLink] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [invite, setInvite] = useState("");
+  const [inviteError, setInviteError] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -31,6 +35,8 @@ export default function StartPage() {
         if (alive && j.repos?.length) setRepos(j.repos);
       } catch {
         /* no GitHub list; the paste box still works */
+      } finally {
+        if (alive) setLoaded(true);
       }
     })();
     return () => {
@@ -45,7 +51,7 @@ export default function StartPage() {
 
   async function create(repoUrl: string, branch?: string) {
     if (busy) return;
-    setBusy(true);
+    setBusy(repoUrl);
     setError("");
     try {
       const res = await fetch("/api/onboarding/room", {
@@ -57,89 +63,154 @@ export default function StartPage() {
         | { workspaceId?: string; error?: string; existing?: boolean }
         | null;
       if (!res.ok || !j?.workspaceId) {
-        setError(j?.error ?? "Could not create the room. Try again.");
-        setBusy(false);
+        setError(j?.error ?? "Could not make the room. Try again.");
+        // This project already has a room: the way in is a teammate's invite link.
+        if (res.status === 409) setJoining(true);
+        setBusy(null);
         return;
       }
       router.push(`/workspace/${j.workspaceId}/room${j.existing ? "" : "?welcome=1"}`);
     } catch {
-      setError("Could not create the room. Try again.");
-      setBusy(false);
+      setError("Could not make the room. Try again.");
+      setBusy(null);
     }
   }
 
-  return (
-    <AmbientBackground>
-      <div className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900/80 p-6 shadow-2xl backdrop-blur">
-        <h1 className="text-xl font-semibold text-zinc-50">Pick a repo</h1>
-        <p className="mt-1 text-sm text-zinc-400">This becomes your room.</p>
+  /** An invite is the whole link or just its code. */
+  function join() {
+    const t = invite.trim();
+    const code = /\/join\/([A-Za-z0-9_-]+)/.exec(t)?.[1] ?? (/^[A-Za-z0-9_-]{4,}$/.test(t) ? t : "");
+    if (!code) {
+      setInviteError("That does not look like an invite link.");
+      return;
+    }
+    setBusy("join");
+    router.push(`/join/${code}`);
+  }
 
-        {repos && (
-          <div className="mt-5">
-            <input
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Search your repos"
-              aria-label="Search your repos"
-              disabled={busy}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none placeholder:text-zinc-500 focus:border-zinc-500"
-            />
-            <ul className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-zinc-800">
-              {shown.map((r) => (
-                <li key={r.full_name}>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void create(r.html_url, r.default_branch)}
-                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus-visible:bg-zinc-800 focus-visible:outline-none disabled:opacity-60"
-                  >
-                    <span className="min-w-0 truncate">{r.full_name}</span>
-                    <span className="shrink-0 text-xs text-zinc-500">
-                      {r.private ? "private" : "public"}
-                    </span>
-                  </button>
-                </li>
-              ))}
-              {shown.length === 0 && (
-                <li className="px-3 py-3 text-sm text-zinc-500">No repos match.</li>
-              )}
-            </ul>
-          </div>
-        )}
-
-        <div className="my-5 flex items-center gap-3 text-xs text-zinc-500">
-          <span className="h-px flex-1 bg-zinc-800" />
-          {repos ? "or paste a link" : "Paste a link"}
-          <span className="h-px flex-1 bg-zinc-800" />
-        </div>
-
+  if (joining)
+    return (
+      <MeshPage step={2} labels={["Sign in", "Room", "Agent"]} key="join">
+        <h1 className={meshTitle}>Paste your invite link</h1>
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (link.trim()) void create(link.trim());
+            if (invite.trim()) join();
           }}
-          className="flex flex-col gap-3"
+          className="flex w-full flex-col items-center gap-3"
         >
           <input
-            value={link}
-            onChange={(e) => setLink(e.target.value)}
-            placeholder="https://github.com/you/project"
-            aria-label="Repo link"
-            disabled={busy}
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none placeholder:text-zinc-500 focus:border-zinc-500"
+            autoFocus
+            value={invite}
+            onChange={(e) => {
+              setInvite(e.target.value);
+              setInviteError("");
+            }}
+            placeholder="Invite link"
+            aria-label="Invite link"
+            disabled={!!busy}
+            className={`${meshInput} h-12 text-center text-base`}
           />
-          <button
-            type="submit"
-            disabled={busy || !link.trim()}
-            className="h-11 rounded-lg bg-white text-sm font-medium text-zinc-900 hover:bg-zinc-200 disabled:opacity-50"
-          >
-            {busy ? "Creating your room…" : "Create room"}
+          <button type="submit" disabled={!!busy || !invite.trim()} className={`${meshSolid} h-12 w-full text-base`}>
+            {busy === "join" ? "Joining…" : "Join Room"}
           </button>
+          {(inviteError || error) && (
+            <p role="alert" className="text-center text-sm text-red-600">
+              {inviteError || error}
+            </p>
+          )}
         </form>
+        <button
+          type="button"
+          onClick={() => {
+            setJoining(false);
+            setError("");
+            setInviteError("");
+          }}
+          className={meshQuiet}
+        >
+          Back
+        </button>
+      </MeshPage>
+    );
 
-        {busy && repos && <p className="mt-3 text-sm text-zinc-400">Creating your room…</p>}
-        {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+  return (
+    <MeshPage step={2} wide key="pick">
+      <h1 className={meshTitle}>Pick your project</h1>
+
+      <div className="flex w-full flex-col gap-3">
+        {!loaded && <p className="text-center text-sm text-zinc-500">Loading your projects…</p>}
+
+        {repos && (
+          <>
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Search"
+              aria-label="Search your projects"
+              disabled={!!busy}
+              className={meshInput}
+            />
+            <ul className="max-h-[296px] overflow-y-auto rounded border border-zinc-200">
+              {shown.map((r) => {
+                const [owner, name] = r.full_name.split("/");
+                return (
+                  <li key={r.full_name} className="border-b border-zinc-200 last:border-b-0">
+                    <button
+                      type="button"
+                      disabled={!!busy}
+                      onClick={() => void create(r.html_url, r.default_branch)}
+                      className={`flex w-full items-center gap-3 px-3.5 py-3 text-left text-sm hover:bg-zinc-50 disabled:opacity-50 ${meshFocus}`}
+                    >
+                      <GitHubIcon className="h-4 w-4" />
+                      <span className="min-w-0 flex-1 truncate">
+                        <span className="text-zinc-500">{owner} / </span>
+                        <span className="font-semibold">{name}</span>
+                      </span>
+                      <span className="shrink-0 text-xs text-zinc-500">
+                        {busy === r.html_url ? "Opening…" : r.private ? "Private" : "Public"}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+              {shown.length === 0 && <li className="px-3.5 py-3 text-sm text-zinc-500">Nothing matches.</li>}
+            </ul>
+          </>
+        )}
+
+        {loaded && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (link.trim()) void create(link.trim());
+            }}
+            className="flex gap-2"
+          >
+            <input
+              value={link}
+              onChange={(e) => setLink(e.target.value)}
+              placeholder={repos ? "Or paste a GitHub link" : "Paste its GitHub link"}
+              aria-label="GitHub link"
+              disabled={!!busy}
+              className={meshInput}
+            />
+            <button type="submit" disabled={!!busy || !link.trim()} className={`${repos ? meshGhost : meshSolid} shrink-0`}>
+              {busy && busy === link.trim() ? "Opening…" : "Make Room"}
+            </button>
+          </form>
+        )}
+
+        {error && (
+          <p role="alert" className="text-center text-sm text-red-600">
+            {error}
+          </p>
+        )}
       </div>
-    </AmbientBackground>
+
+      <button type="button" onClick={() => setJoining(true)} className={meshQuiet}>
+        I Have an Invite Link
+      </button>
+    </MeshPage>
   );
 }

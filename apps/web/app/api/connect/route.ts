@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { agentFromBearer, hashAgentToken } from "@/lib/agents";
 import { broadcastWorkspaceEvent } from "@/lib/realtime/broadcast";
+import { ROOM_PUBLIC_KEY } from "@/lib/roomCoreSig";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,11 @@ export async function POST(req: Request) {
   const agent = await agentFromBearer(req);
   if (!agent) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const old = String((await req.formData().catch(() => null))?.get("old") ?? "");
-  if (!old.startsWith("as_")) return Response.json({ replaced: 0 });
+  if (!old.startsWith("as_")) {
+    // A plain check-in: the installer finished, so the room can show this agent as connected.
+    await broadcastWorkspaceEvent(agent.workspaceId, { type: "agents_changed" });
+    return Response.json({ replaced: 0 });
+  }
   const gone = await prisma.agent.deleteMany({
     where: {
       tokenHash: hashAgentToken(old),
@@ -25,10 +30,11 @@ export async function POST(req: Request) {
 /**
  * `curl -fsSL ORIGIN/api/connect | sh -s -- TOKEN`
  * Sets up the three Claude Code hooks in the current git clone. POSIX sh only.
+ * The hooks are small stubs; what they run is served by ./core and can change without a reconnect.
  * Written with String.raw and no backticks or dollar-brace so the shell text stays literal.
  */
 const SCRIPT = String.raw`#!/bin/sh
-# AgentSlack connect: wires this clone to the team room.
+# Mesh connect: wires this clone to the team room.
 ORIGIN='__ORIGIN__'
 TOKEN="$1"
 fail() { echo "agentslack: $1" >&2; exit 1; }
@@ -55,79 +61,57 @@ done
 
 mkdir -p .agentslack/hooks .claude
 
-cat > .agentslack/hooks/prompt.sh <<'AS_EOF'
+# What gets installed here is tiny and never changes: each file hands over to run.sh, and
+# run.sh runs the room's current script (core.sh), fetching a fresh copy at the start of a turn.
+# So the room can be improved without anyone connecting again.
+cat > .agentslack/run.sh <<'AS_EOF'
 #!/bin/sh
-# UserPromptSubmit: pull the team's latest, tell the agent, record intent.
-cd "$CLAUDE_PROJECT_DIR" 2>/dev/null || exit 0
-T=$(git config --local agentslack.token 2>/dev/null)
-U=$(git config --local agentslack.url 2>/dev/null)
-[ -n "$T" ] && [ -n "$U" ] || exit 0
-curl -fsS --max-time 3 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" --data-binary @- "$U/api/hook/prompt" 2>/dev/null
-[ -f .agentslack/no-pull ] && exit 0
-before=$(git rev-parse HEAD 2>/dev/null) || exit 0
-if ! git pull -q --rebase --autostash origin draft >/dev/null 2>&1; then
-  git rebase --abort >/dev/null 2>&1
-  exit 0
-fi
-after=$(git rev-parse HEAD)
-if [ "$before" != "$after" ]; then
-  echo "ROOM UPDATE: teammates changed the project since your last turn. Your files are already up to date."
-  git log --format='- %an: %s' "$before..$after"
-  git diff --stat "$before..$after" | tail -5
-fi
-exit 0
-AS_EOF
-
-cat > .agentslack/hooks/before-edit.sh <<'AS_EOF'
-#!/bin/sh
-# PreToolUse on Edit|Write: ask the room who else is in this file.
-cd "$CLAUDE_PROJECT_DIR" 2>/dev/null || exit 0
-T=$(git config --local agentslack.token 2>/dev/null)
-U=$(git config --local agentslack.url 2>/dev/null)
-[ -n "$T" ] && [ -n "$U" ] || exit 0
-curl -fsS --max-time 3 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" --data-binary @- "$U/api/hook/before-edit" 2>/dev/null
-exit 0
-AS_EOF
-
-cat > .agentslack/hooks/stop.sh <<'AS_EOF'
-#!/bin/sh
-# Stop: save this turn to the shared draft. Nobody types a git command.
-cd "$CLAUDE_PROJECT_DIR" 2>/dev/null || exit 0
-T=$(git config --local agentslack.token 2>/dev/null)
-U=$(git config --local agentslack.url 2>/dev/null)
-[ -n "$T" ] && [ -n "$U" ] || exit 0
-me=$(git config user.name 2>/dev/null); [ -n "$me" ] || me=teammate
-pending=.agentslack/pending-files
-if git grep -qE '^(<<<<<<<|>>>>>>>) ' >/dev/null 2>&1; then
-  echo '{"decision":"block","reason":"Conflict markers are still in the files. Finish combining both versions, remove every marker, then stop."}'
-  exit 0
-fi
-before=$(git rev-parse HEAD 2>/dev/null) || exit 0
-git add -A >/dev/null 2>&1
-if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
-  git commit -q --no-edit >/dev/null 2>&1
-elif ! git diff --cached --quiet; then
-  git commit -q -m "Saved turn" >/dev/null 2>&1
-  git diff --name-only "$before" HEAD >> "$pending" 2>/dev/null
-fi
-if ! git pull -q --no-rebase --no-edit origin draft >/dev/null 2>&1; then
-  files=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
-  if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
-    who=$(git log -1 --format=%an MERGE_HEAD)
-    printf '{"decision":"block","reason":"%s changed the same lines as you in: %s. Both versions are now in the file between conflict markers. Combine them so that BOTH changes survive, remove the markers, then stop. Tell the user in one sentence what you combined."}\n' "$who" "$files"
+# Mesh: runs the room's current script for this project.
+# To stop automatic updates, create the file .agentslack/no-update
+D="$CLAUDE_PROJECT_DIR"
+[ -n "$D" ] || D=$(git rev-parse --show-toplevel 2>/dev/null)
+cd "$D" 2>/dev/null || exit 0
+CLAUDE_PROJECT_DIR="$PWD"; export CLAUDE_PROJECT_DIR
+# Only a complete, valid script that the Mesh team signed replaces the current one.
+fetch_core() {
+  curl -fsS --max-time "$1" "$U/api/connect/core" -o .agentslack/core.new 2>/dev/null || return 1
+  [ "$(tail -n 1 .agentslack/core.new)" = "# mesh-core-end" ] || return 1
+  sh -n .agentslack/core.new 2>/dev/null || return 1
+  if [ -f .agentslack/room.pub ]; then
+    command -v openssl >/dev/null 2>&1 || return 1
+    curl -fsS --max-time "$1" "$U/api/connect/core?sig=1" -o .agentslack/core.sig64 2>/dev/null || return 1
+    openssl base64 -d -A -in .agentslack/core.sig64 -out .agentslack/core.sig 2>/dev/null || return 1
+    openssl dgst -sha256 -verify .agentslack/room.pub -signature .agentslack/core.sig .agentslack/core.new >/dev/null 2>&1 || return 1
   fi
-  exit 0
-fi
-if git push -q origin HEAD:draft >/dev/null 2>&1; then
-  if [ -s "$pending" ]; then
-    list=$(sort -u "$pending")
-    sha=$(git rev-parse --short HEAD)
-    curl -fsS --max-time 3 -X POST -H "Authorization: Bearer $T" --data-urlencode "files=$list" --data-urlencode "sha=$sha" "$U/api/hook/saved" >/dev/null 2>&1 && rm -f "$pending"
-  fi
-fi
-exit 0
+  return 0
+}
+case "$1" in
+  prompt|start|fetch)
+    U=$(git config --local agentslack.url 2>/dev/null)
+    if [ -n "$U" ] && { [ "$1" = "fetch" ] || [ ! -f .agentslack/no-update ]; }; then
+      t=3; [ "$1" = "fetch" ] && t=10
+      if fetch_core "$t"; then mv .agentslack/core.new .agentslack/core.sh; fi
+      rm -f .agentslack/core.new .agentslack/core.sig .agentslack/core.sig64
+    fi
+    [ "$1" = "fetch" ] && exit 0
+    ;;
+esac
+[ -f .agentslack/core.sh ] || exit 0
+exec sh .agentslack/core.sh "$@"
 AS_EOF
-chmod +x .agentslack/hooks/prompt.sh .agentslack/hooks/before-edit.sh .agentslack/hooks/stop.sh
+for h in prompt before-edit stop; do
+  printf '#!/bin/sh\nexec sh "$CLAUDE_PROJECT_DIR/.agentslack/run.sh" %s\n' "$h" > ".agentslack/hooks/$h.sh"
+done
+printf '#!/bin/sh\nexec sh "$(git rev-parse --show-toplevel 2>/dev/null)/.agentslack/run.sh" "$@"\n' > .agentslack/room.sh
+chmod +x .agentslack/run.sh .agentslack/room.sh .agentslack/hooks/prompt.sh .agentslack/hooks/before-edit.sh .agentslack/hooks/stop.sh
+# The key that checks the room's script is really from Mesh. It can only check, never sign.
+cat > .agentslack/room.pub <<'AS_EOF'
+__PUBKEY__
+AS_EOF
+rm -f .agentslack/core.sh
+sh .agentslack/run.sh fetch
+[ -f .agentslack/core.sh ] || fail "could not get the room's script, or its signature did not match. Check your connection and run this again."
+
 
 HOOKS='{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.agentslack/hooks/prompt.sh"}]}],"PreToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.agentslack/hooks/before-edit.sh"}]}],"Stop":[{"hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.agentslack/hooks/stop.sh"}]}]}}'
 HOOKS_NOTE=""
@@ -169,11 +153,53 @@ if [ -n "$(git status --porcelain .gitignore)" ]; then
   git push -q origin HEAD:draft >/dev/null 2>&1
 fi
 
-if [ -z "$AGENTSLACK_SKIP_MCP" ] && command -v claude >/dev/null 2>&1; then
+KIND="$2"
+
+RULES_FILE=""
+case "$KIND" in
+  codex) RULES_FILE="AGENTS.md" ;;
+  gemini) RULES_FILE="GEMINI.md" ;;
+esac
+if [ -n "$RULES_FILE" ] && ! grep -q 'mesh:start' "$RULES_FILE" 2>/dev/null; then
+  # A rules file we create stays out of the team's commits; one that already exists is theirs.
+  [ -e "$RULES_FILE" ] || echo "$RULES_FILE" >> .git/info/exclude
+  cat >> "$RULES_FILE" <<'AS_EOF'
+
+<!-- mesh:start -->
+## Team room (Mesh)
+
+This project is shared with a team through Mesh. Everyone works on one shared "draft" branch. Follow these three rules on every request, without being asked:
+
+1. Before you start, run: sh .agentslack/room.sh start
+   It brings in teammates' latest work. Read what it prints; it may include a request from the room.
+2. Before you change a file, run: sh .agentslack/room.sh check <path>
+   If it prints STOP, do not change that file. Tell the user what it says.
+3. When you finish, run: sh .agentslack/room.sh save
+   It saves your work to the shared draft. If it prints CONFLICT, combine both versions so that both changes survive, remove the markers, and run it again.
+
+Never commit, push or switch branches yourself, and never work on the main branch. Publishing to the public site happens in the room, not here.
+<!-- mesh:end -->
+AS_EOF
+fi
+if [ "$KIND" = "gemini" ] && [ -z "$AGENTSLACK_SKIP_MCP" ] && command -v gemini >/dev/null 2>&1; then
+  gemini mcp remove agentslack >/dev/null 2>&1
+  gemini mcp add --transport http --header "Authorization: Bearer $TOKEN" agentslack "$ORIGIN/api/mcp" >/dev/null 2>&1
+fi
+
+if [ -z "$RULES_FILE" ] && [ -z "$AGENTSLACK_SKIP_MCP" ] && command -v claude >/dev/null 2>&1; then
+  # Reconnecting: drop any older entry first, or the old address and key would stay.
+  claude mcp remove agentslack >/dev/null 2>&1
   claude mcp add --transport http agentslack "$ORIGIN/api/mcp" --header "Authorization: Bearer $TOKEN" >/dev/null 2>&1
 fi
 
+curl -fsS --max-time 5 -X POST -H "Authorization: Bearer $TOKEN" "$ORIGIN/api/connect" >/dev/null 2>&1
+
 echo "Connected this folder to your team room."
+if [ -n "$RULES_FILE" ]; then
+  echo "The team rules are in $RULES_FILE. Your agent brings in the team's work, checks before editing, and saves to the shared draft by itself."
+  echo "Start your agent again in this folder so it reads the rules."
+  exit 0
+fi
 echo "Your work now saves to the shared draft branch each time Claude finishes a turn."
 if [ -n "$HOOKS_NOTE" ]; then echo "$HOOKS_NOTE"; else echo "Start Claude Code here as usual. You never need to run git."; fi
 `;
@@ -183,7 +209,7 @@ export async function GET(req: Request) {
   const proto = req.headers.get("x-forwarded-proto");
   const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
   const base = host && proto ? `${proto.split(",")[0].trim()}://${host}` : origin;
-  return new Response(SCRIPT.replace("__ORIGIN__", base.replace(/'/g, "")), {
+  return new Response(SCRIPT.replace("__ORIGIN__", base.replace(/'/g, "")).replace("__PUBKEY__", ROOM_PUBLIC_KEY), {
     headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
   });
 }

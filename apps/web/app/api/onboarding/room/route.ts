@@ -144,13 +144,13 @@ export async function POST(req: Request) {
   if (existing.kind === "open") return NextResponse.json({ workspaceId: existing.id, existing: true });
   if (existing.kind === "ask")
     return NextResponse.json(
-      { error: "This repo already has a room. Ask a teammate for the invite link." },
+      { error: "This project already has a room. Paste a teammate's invite link below to join it." },
       { status: 409 }
     );
 
   const ws = await createWorkspaceWithOwner(userId, name);
 
-  for (const channelName of ["general", "prd", "changes"]) {
+  for (const channelName of ["general", "updates", "changes"]) {
     await prisma.channel.upsert({
       where: {
         workspaceId_kind_name: { workspaceId: ws.id, kind: "channel", name: channelName },

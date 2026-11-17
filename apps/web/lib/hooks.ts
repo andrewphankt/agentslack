@@ -40,6 +40,37 @@ export async function ensureChannel(wsId: string, name: string) {
   });
 }
 
+/** The channel of published updates. Rooms made before the rename had it as "prd". */
+export async function ensureUpdates(wsId: string) {
+  const where = { workspaceId: wsId, kind: "channel" };
+  const have = await prisma.channel.findFirst({ where: { ...where, name: "updates" } });
+  if (have) return have;
+  const old = await prisma.channel.findFirst({ where: { ...where, name: "prd" } });
+  if (old) return prisma.channel.update({ where: { id: old.id }, data: { name: "updates" } });
+  return ensureChannel(wsId, "updates");
+}
+
+/** One post per publish: what went out and who made it. */
+export async function postUpdate(wsId: string, userId: string, items: { what: string; who: string }[]) {
+  const channel = await ensureUpdates(wsId);
+  const n = (await prisma.collaborationMessage.count({ where: { channelId: channel.id, type: "update" } })) + 1;
+  const title = `Update ${n}`;
+  const row = await prisma.collaborationMessage.create({
+    data: {
+      workspaceId: wsId,
+      channelId: channel.id,
+      authorUserId: userId,
+      type: "update",
+      fromAgent: userId,
+      toTarget: "#updates",
+      content: { title, items, text: [title, ...items.map((i) => `- ${i.what} (${i.who})`)].join("\n") },
+      messageId: randomUUID(),
+    },
+  });
+  await broadcastWorkspaceEvent(wsId, { type: "chat_message", channelId: channel.id, messageId: row.id });
+  return title;
+}
+
 export async function postChangesNote(agent: HookAgent, files: string[], sha: string) {
   const names = await displayNames(agent.workspaceId);
   const channel = await ensureChannel(agent.workspaceId, "changes");

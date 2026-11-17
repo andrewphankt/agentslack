@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { agentFromBearer, agentLabel } from "@/lib/agents";
 import { displayNames } from "@/lib/chat";
+import { cleanUrl } from "@/lib/links";
+import { postPersonNote } from "@/lib/hooks";
 import { broadcastWorkspaceEvent } from "@/lib/realtime/broadcast";
 import { queryWorkspaceContext } from "@/lib/context/retriever";
 
@@ -47,7 +49,7 @@ const TOOLS = [
   {
     name: "write_prd",
     description:
-      "Post a short product summary (1–2 paragraphs, plain language: what this project is, who it is for, what exists so far) to the room's #prd channel.",
+      "Post a short product summary (1–2 paragraphs, plain language: what this project is, who it is for, what exists so far) to the room's #updates channel.",
     inputSchema: {
       type: "object",
       properties: { text: { type: "string", description: "The summary, 1–2 short paragraphs" } },
@@ -75,7 +77,7 @@ const TOOLS = [
   {
     name: "rename_channel",
     description:
-      "Rename a channel in your room. The built-in channels general, prd and changes cannot be renamed.",
+      "Rename a channel in your room. The built-in channels updates and changes cannot be renamed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -83,6 +85,19 @@ const TOOLS = [
         to: { type: "string", description: "New channel name" },
       },
       required: ["from", "to"],
+    },
+  },
+  {
+    name: "set_preview",
+    description:
+      "Set the page everyone in the room sees in the Preview tab. Use it when your owner asks you to set up, connect or show the preview. How the room works: every agent's work is saved to the shared 'draft' branch; the default branch is the real public product and only changes when a person presses Publish. So the preview must be a deployment of the 'draft' branch on its own link, separate from the public site. If the project is already on a host (Vercel, Netlify, Railway, Cloudflare or other), reuse that project and leave the public site's settings alone; otherwise create one from this repo. Never ask for passwords or keys in chat, and ask before anything that costs money. Then call this with the draft link (and the public site's link if there is one).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        preview_url: { type: "string", description: "The https link that shows the draft branch" },
+        live_url: { type: "string", description: "The public site's link, if there is one" },
+      },
+      required: ["preview_url"],
     },
   },
   {
@@ -238,7 +253,7 @@ async function writePrd(agent: Agent, args: Record<string, unknown>): Promise<To
   if (!body) return text("text is required", true);
   if (body.length > PRD_MAX) return text(`text must be ${PRD_MAX} characters or fewer`, true);
   await postPrd(agent, body);
-  return text("Posted to #prd.");
+  return text("Posted to #updates.");
 }
 
 async function messagePerson(agent: Agent, args: Record<string, unknown>): Promise<ToolResult> {
@@ -284,7 +299,7 @@ async function messagePerson(agent: Agent, args: Record<string, unknown>): Promi
   return text(`Sent to ${hit[1]}.`);
 }
 
-const BUILT_IN = ["general", "prd", "changes"];
+const BUILT_IN = ["updates", "prd", "changes"];
 
 /** "#My Design!" -> "my-design". Empty when nothing usable is left. */
 function channelSlug(raw: unknown): string {
@@ -351,6 +366,25 @@ async function renameChannel(agent: Agent, args: Record<string, unknown>): Promi
   return text(`Renamed #${from} to #${to}.`);
 }
 
+async function setPreview(agent: Agent, args: Record<string, unknown>): Promise<ToolResult> {
+  let previewUrl: string | null | undefined;
+  let liveUrl: string | null | undefined;
+  try {
+    previewUrl = cleanUrl(args.preview_url);
+    liveUrl = cleanUrl(args.live_url);
+  } catch (e) {
+    return text((e as Error).message, true);
+  }
+  if (!previewUrl) return text("preview_url is required", true);
+  await prisma.workspace.update({
+    where: { id: agent.workspaceId },
+    data: { previewUrl, ...(liveUrl ? { liveUrl } : {}) },
+  });
+  await postPersonNote(agent.workspaceId, agent.ownerUserId, `Set the preview to ${previewUrl} (through their agent).`);
+  await broadcastWorkspaceEvent(agent.workspaceId, { type: "draft_changed" });
+  return text("Saved. The whole room now sees this page in the Preview tab.");
+}
+
 async function callTool(agent: Agent, params: Record<string, unknown>): Promise<ToolResult> {
   const args = (params.arguments ?? {}) as Record<string, unknown>;
   try {
@@ -362,6 +396,7 @@ async function callTool(agent: Agent, params: Record<string, unknown>): Promise<
     if (params.name === "list_channels") return await listChannels(agent);
     if (params.name === "post_to_channel") return await postToChannel(agent, args);
     if (params.name === "rename_channel") return await renameChannel(agent, args);
+    if (params.name === "set_preview") return await setPreview(agent, args);
     return text(`Unknown tool: ${String(params.name)}`, true);
   } catch {
     return text("Tool failed.", true);

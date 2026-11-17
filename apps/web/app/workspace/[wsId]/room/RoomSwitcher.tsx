@@ -1,5 +1,6 @@
 "use client";
 
+import { MeshMark } from "@/components/MeshPage";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -45,11 +46,7 @@ export function RoomSwitcher({
   }, [open]);
 
   const title = name || "Room";
-  const tile = (label: string) => (
-    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-zinc-700 text-xs font-semibold uppercase text-zinc-100">
-      {label.trim().charAt(0) || "?"}
-    </span>
-  );
+  const item = "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-zinc-900 hover:bg-zinc-100 focus-visible:outline-none focus-visible:bg-zinc-100";
 
   return (
     <div ref={boxRef} className="relative">
@@ -57,21 +54,30 @@ export function RoomSwitcher({
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={`Mesh, ${title}. Switch rooms`}
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-2 text-left hover:border-zinc-700"
+        className="flex h-10 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-zinc-200/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
       >
-        {tile(title)}
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
-        <span aria-hidden className={`text-xs text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`}>
-          ▾
-        </span>
+        <MeshMark size={22} dots={34} />
+        <span className="sr-only">Mesh</span>
+        <span className="min-w-0 flex-1 truncate font-semibold">{title}</span>
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden
+          className={`h-3.5 w-3.5 shrink-0 text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
       </button>
 
       {open && (
-        <div
-          role="menu"
-          className="absolute left-0 right-0 top-full z-20 mt-1 rounded-lg border border-zinc-800 bg-zinc-900 p-1 shadow-xl"
-        >
+        <div role="menu" className="absolute left-0 right-0 top-full z-20 mt-1 rounded border border-zinc-300 bg-white p-1 shadow-sm">
+          <p className="px-2 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Rooms</p>
           <div className="max-h-64 overflow-y-auto">
             {rooms.map((r) => (
               <Link
@@ -79,34 +85,29 @@ export function RoomSwitcher({
                 role="menuitem"
                 href={`/workspace/${r.workspaceId}/room`}
                 onClick={() => setOpen(false)}
-                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-zinc-200 hover:bg-zinc-800"
+                aria-current={r.workspaceId === wsId ? "true" : undefined}
+                className={`${item} ${r.workspaceId === wsId ? "font-semibold" : ""}`}
               >
-                {tile(r.name)}
                 <span className="min-w-0 flex-1 truncate">{r.name}</span>
-                {r.workspaceId === wsId && <span className="text-xs text-zinc-400">✓</span>}
+                {r.workspaceId === wsId && (
+                  <svg viewBox="0 0 24 24" aria-hidden className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12.5l4.5 4.5L19 7.5" />
+                  </svg>
+                )}
               </Link>
             ))}
           </div>
 
-          <div className="my-1 border-t border-zinc-800" />
+          <div className="my-1 border-t border-zinc-200" />
 
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => router.push("/start")}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-zinc-200 hover:bg-zinc-800"
-          >
-            <span className="grid h-7 w-7 place-items-center rounded-md border border-dashed border-zinc-600 text-zinc-400">
-              +
-            </span>
-            New room
+          <button type="button" role="menuitem" onClick={() => router.push("/start")} className={item}>
+            New Room
           </button>
-          <Link
-            role="menuitem"
-            href={`/workspace/${wsId}`}
-            className="block rounded-md px-2 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
-          >
-            Room settings
+          <button type="button" role="menuitem" onClick={() => router.push("/start")} className={item}>
+            Join a Room
+          </button>
+          <Link role="menuitem" href={`/workspace/${wsId}`} className={`${item} text-zinc-600`}>
+            Room Settings
           </Link>
         </div>
       )}

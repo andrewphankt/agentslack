@@ -1,41 +1,41 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Steps } from "@/components/MeshPage";
+import { LOGO } from "./logos";
 
 const KINDS = [
-  { kind: "claude", label: "Claude Code" },
-  { kind: "codex", label: "Codex" },
-  { kind: "gemini", label: "Gemini CLI" },
-];
+  { kind: "claude", label: "Claude Code", logo: LOGO.claude, color: "#D97757" },
+  { kind: "codex", label: "Codex", logo: LOGO.openai, color: "#111111" },
+  { kind: "gemini", label: "Gemini", logo: LOGO.googlegemini, color: "#8E75B2" },
+] as const;
 
 const FIRST_TASK = "Read this project and write a short PRD to the room with the write_prd tool.";
 
+/** The one line that connects a project folder. Codex and Gemini are named so they get their rules file. */
+function install(kind: string, origin: string, token: string): string {
+  return `curl -fsSL ${origin}/api/connect | sh -s -- ${token}` + (kind === "claude" ? "" : ` ${kind}`);
+}
+
 function command(kind: string, origin: string, token: string, first: boolean): string {
-  if (kind === "claude")
-    return (
-      `curl -fsSL ${origin}/api/connect | sh -s -- ${token}` +
-      (first ? ` && claude "${FIRST_TASK}"` : "")
-    );
-  if (kind === "codex")
-    return (
-      `export AGENTSLACK_TOKEN=${token} && codex mcp add agentslack --url ${origin}/api/mcp --bearer-token-env-var AGENTSLACK_TOKEN` +
-      (first ? ` && codex "${FIRST_TASK}"` : "")
-    );
-  return (
-    `gemini mcp add --transport http --header "Authorization: Bearer ${token}" agentslack ${origin}/api/mcp` +
-    (first ? ` && gemini -i "${FIRST_TASK}"` : "")
-  );
+  return install(kind, origin, token) + (kind === "claude" && first ? ` && claude "${FIRST_TASK}"` : "");
 }
 
 /** A message to paste to an agent that is already running in the project. */
-function agentMessage(origin: string, token: string, first: boolean, repoUrl: string | null): string {
+function agentMessage(kind: string, label: string, origin: string, token: string, first: boolean, repoUrl: string | null): string {
+  const name = repoUrl?.split("/").pop() || "";
   const lines = [
     repoUrl
-      ? `Connect this project to my team room. The project is ${repoUrl}. If this folder is not a copy of it yet, get it first (git clone ${repoUrl}) and work inside that folder. Then run this in the project folder:`
+      ? `Connect this project to my team room. The project is ${repoUrl}. If this folder is not a copy of it yet, get it first: use an existing copy if you can find one, otherwise run git clone ${repoUrl} ~/Desktop/${name} and work inside that folder. Then run this in the project folder:`
       : "Connect this project to my team room. Run this in the project folder:",
     "",
-    `curl -fsSL ${origin}/api/connect | sh -s -- ${token}`,
+    install(kind, origin, token),
   ];
+  if (kind !== "claude")
+    lines.push(
+      "",
+      `That adds a "Team room (Mesh)" section to ${kind === "codex" ? "AGENTS.md" : "GEMINI.md"}. Read it now and follow its three rules for the rest of this chat and in every later one.`,
+    );
   if (first)
     lines.push(
       "",
@@ -43,66 +43,91 @@ function agentMessage(origin: string, token: string, first: boolean, repoUrl: st
       "",
       `curl -fsS -X POST ${origin}/api/hook/prd -H "Authorization: Bearer ${token}" --data-urlencode "text=YOUR SUMMARY HERE"`,
     );
-  lines.push(
-    "",
-    "When that is done, tell me to restart you once (exit, then run: claude --continue) so automatic saving and teammate warnings switch on.",
-  );
+  lines.push("", "When that is done, reply with only this and nothing else:", "");
+  if (kind === "claude")
+    lines.push(
+      `${name || "This project"} has been connected! Please:`,
+      "1. /exit",
+      "2. claude --continue",
+      "to return and sync with your teammates.",
+      "",
+      "If you had to make a new folder, replace step 2 with: open Claude Code inside that folder (say which folder).",
+    );
+  else
+    lines.push(
+      `${name || "This project"} has been connected! Your work now saves to the team's shared draft.`,
+      "",
+      `If you had to make a new folder, add: open ${label} inside that folder (say which folder).`,
+    );
+  lines.push("If a step failed, say which one in a sentence or two instead.");
   return lines.join("\n");
 }
 
-/** Pick an agent, get a one-time command to paste in a terminal. */
+const focus = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2";
+const big = `inline-flex h-[60px] items-center justify-center gap-3 rounded-md bg-zinc-900 px-10 text-lg font-semibold text-white hover:bg-zinc-700 ${focus}`;
+
+function Tick({ size, className = "" }: { size: number; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} className={className} fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </svg>
+  );
+}
+
+/** Connect an agent in three screens: pick it, copy one message, see it connect. */
 export function ConnectAgent({
   wsId,
   headers,
   onClose,
   mode = "default",
-  connected = false,
-  askPurpose = false,
+  onlineIds,
+  roomName = "",
+  summary = false,
+  stepLabels,
 }: {
-  /** True when this person already has an agent here: ask what the new one is for. */
-  askPurpose?: boolean;
   wsId: string;
   headers: HeadersInit;
   onClose: () => void;
-  /** "first": onboarding copy, command also starts the agent on its first task. */
+  /** "first": the third step of setting up; the message also asks for a project summary. */
   mode?: "default" | "first";
-  /** first mode: true once the first message has arrived in #prd. */
-  connected?: boolean;
+  /** Ids of agents that are running right now. The page flips to the tick when ours shows up. */
+  onlineIds: Set<string>;
+  roomName?: string;
+  /** Also ask the agent to post a short summary of the project (a brand new room). */
+  summary?: boolean;
+  /** The names over the circles when this is the last step of setting up. */
+  stepLabels?: string[];
 }) {
   const first = mode === "first";
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const [made, setMade] = useState<{ kind: string; token: string; repoUrl: string | null } | null>(null);
-  /** "agent": a message for a running agent. "terminal": a command to paste. */
-  const [via, setVia] = useState<"agent" | "terminal">("agent");
-  const canTell = made?.kind === "claude";
-  const cmd = !made
-    ? ""
-    : canTell && via === "agent"
-      ? agentMessage(window.location.origin, made.token, first, made.repoUrl)
-      : command(made.kind, window.location.origin, made.token, first);
+  const [made, setMade] = useState<{ id: string; kind: string; token: string; repoUrl: string | null } | null>(null);
+  const [terminal, setTerminal] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [purpose, setPurpose] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const firstRef = useRef<HTMLButtonElement>(null);
 
+  const kind = KINDS.find((k) => k.kind === made?.kind);
+  const tell = !!made && !terminal;
+  const cmd = !made
+    ? ""
+    : tell
+      ? agentMessage(made.kind, kind?.label ?? "your agent", window.location.origin, made.token, summary, made.repoUrl)
+      : command(made.kind, window.location.origin, made.token, summary);
+  const connected = !!made && onlineIds.has(made.id);
+
   useEffect(() => {
     firstRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !first) onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, first]);
 
-  useEffect(() => {
-    if (!first || !connected) return;
-    const t = setTimeout(() => onCloseRef.current(), 1500);
-    return () => clearTimeout(t);
-  }, [first, connected]);
-
-  async function choose(kind: string) {
+  async function choose(k: string) {
     if (busy) return;
     setBusy(true);
     setError("");
@@ -110,11 +135,12 @@ export function ConnectAgent({
       const res = await fetch(`/api/workspaces/${wsId}/agents`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ kind, purpose: askPurpose ? purpose : undefined }),
+        body: JSON.stringify({ kind: k }),
       });
       if (!res.ok) throw new Error();
-      const { token, repoUrl } = (await res.json()) as { token: string; repoUrl?: string | null };
-      setMade({ kind, token, repoUrl: repoUrl ?? null });
+      const j = (await res.json()) as { token: string; repoUrl?: string | null; agent: { id: string } };
+      setMade({ id: j.agent.id, kind: k, token: j.token, repoUrl: j.repoUrl ?? null });
+      setTerminal(false);
       setCopied(false);
     } catch {
       setError("Could not create the agent.");
@@ -127,147 +153,145 @@ export function ConnectAgent({
     try {
       await navigator.clipboard.writeText(cmd);
       setCopied(true);
+      setError("");
     } catch {
-      setError("Copy failed. Select the command and copy it.");
+      setError("Copy failed. Open the text below and copy it by hand.");
     }
   }
 
-  const skip = (
-    <button
-      type="button"
-      onClick={onClose}
-      className="text-xs text-zinc-500 hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-    >
-      Skip for now
-    </button>
-  );
+  const title = "text-center text-[28px] font-bold tracking-tight";
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Connect your agent"
+      className={`${first ? "" : "soft-in "}fixed inset-0 z-50 flex flex-col items-center overflow-y-auto bg-white px-6 py-7 text-zinc-900`}
+      style={{ colorScheme: "light" }}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        className="w-full max-w-lg rounded-lg border border-zinc-800 bg-zinc-900 p-5 text-zinc-100 shadow-xl"
-      >
-        {first && connected ? (
-          <p className="py-6 text-center text-sm font-medium">Your agent is connected.</p>
-        ) : cmd ? (
-          <>
-            {canTell && (
-              <div role="tablist" aria-label="How to connect" className="mb-3 flex gap-1 rounded-lg bg-zinc-950 p-1">
-                {(
-                  [
-                    ["agent", "Tell your agent"],
-                    ["terminal", "Use the terminal"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    role="tab"
-                    aria-selected={via === key}
-                    onClick={() => {
-                      setVia(key);
-                      setCopied(false);
-                    }}
-                    className={`h-9 flex-1 rounded-md text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                      via === key ? "bg-zinc-700 text-white" : "text-zinc-400 hover:text-zinc-200"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-            <h2 className="mb-3 text-sm font-semibold">
-              {canTell && via === "agent"
-                ? "Paste this to the agent already working on your project."
-                : first
-                  ? "Run this in your project folder."
-                  : "Paste this in your terminal"}
-            </h2>
-            <div className="max-h-56 overflow-y-auto whitespace-pre-wrap break-all rounded border border-zinc-700 bg-zinc-950 p-3 font-mono text-xs text-zinc-300">
-              {cmd}
-            </div>
-            <div className="mt-2 flex items-center justify-between">
-              <span className="text-xs text-zinc-500">This key is shown once.</span>
-              <button
-                type="button"
-                autoFocus
-                onClick={() => void copy()}
-                className="rounded border border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-800"
-              >
-                {copied ? "Copied" : "Copy"}
-              </button>
-            </div>
-            {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-            {first ? (
-              <div className="mt-4 flex items-center justify-between">
-                <span className="flex items-center gap-2 text-xs text-zinc-400">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-                  Waiting for your agent…
-                </span>
-                {skip}
-              </div>
-            ) : (
-              <div className="mt-4 flex justify-end">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                >
-                  Done
-                </button>
-              </div>
-            )}
-          </>
+      <div className="flex min-h-6 w-full shrink-0 items-center justify-center">
+        {first ? (
+          <Steps at={connected ? 4 : 3} labels={stepLabels} />
         ) : (
-          <>
-            <h2 className="text-sm font-semibold">
-              {first ? "Connect your agent" : "Connect an agent"}
-            </h2>
-            {first && (
-              <p className="mb-3 mt-1 text-xs text-zinc-400">
-                It will read your project and write a short summary for the room.
-              </p>
-            )}
-            {!first && <div className="mb-3" />}
-            {askPurpose && (
-              <label className="mb-3 block text-xs text-zinc-400">
-                You already have an agent here. What is this one for?
-                <input
-                  value={purpose}
-                  onChange={(e) => setPurpose(e.target.value)}
-                  maxLength={24}
-                  placeholder="website"
-                  className="mt-1 block w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-500"
-                />
-              </label>
-            )}
-            <div className="flex flex-col gap-2">
-              {KINDS.map((k, i) => (
-                <button
-                  key={k.kind}
-                  ref={i === 0 ? firstRef : undefined}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void choose(k.kind)}
-                  className="rounded border border-zinc-700 px-3 py-2 text-left text-sm hover:bg-zinc-800 disabled:opacity-60"
-                >
-                  {k.label}
-                </button>
-              ))}
-            </div>
-            {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-            {first && <div className="mt-3 flex justify-end">{skip}</div>}
-          </>
+          <button type="button" onClick={onClose} aria-label="Close" className={`ml-auto grid h-9 w-9 place-items-center rounded border border-zinc-200 hover:bg-zinc-50 ${focus}`}>
+            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+              <path d="M5 5l10 10M15 5L5 15" />
+            </svg>
+          </button>
         )}
       </div>
+
+      {connected ? (
+        <div key="done" className="soft-in flex w-full max-w-md flex-1 flex-col items-center justify-center gap-7" aria-live="polite">
+          <span className="grid h-[88px] w-[88px] place-items-center rounded-full bg-zinc-900 text-white">
+            <Tick size={46} />
+          </span>
+          <div className="flex flex-col items-center gap-2.5">
+            <h2 className={title}>Connected</h2>
+            <p className="flex items-center gap-2 text-zinc-500">
+              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill={kind?.color} aria-hidden>
+                <path d={kind?.logo} />
+              </svg>
+              {kind?.label}
+              {roomName ? ` · ${roomName}` : ""}
+            </p>
+          </div>
+          <button type="button" autoFocus onClick={onClose} className={big}>
+            {first ? "Enter Room" : "Done"}
+          </button>
+        </div>
+      ) : made ? (
+        <div key="copy" className="soft-in flex w-full max-w-[420px] flex-1 flex-col items-center justify-center gap-7">
+          <div className="flex flex-col items-center gap-3.5">
+            <svg viewBox="0 0 24 24" className="h-10 w-10" fill={kind?.color} aria-hidden>
+              <path d={kind?.logo} />
+            </svg>
+            <h2 className={title}>{tell ? `Paste this into ${kind?.label}` : "Run this in your terminal"}</h2>
+          </div>
+          <div className="flex flex-col items-center gap-3">
+            <button type="button" autoFocus onClick={() => void copy()} className={big}>
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <rect x="9" y="9" width="11" height="11" rx="2" />
+                <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+              </svg>
+              Copy
+            </button>
+            {made && (
+              <p className="text-[13px] text-zinc-500">
+                or{" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTerminal((v) => !v);
+                    setCopied(false);
+                  }}
+                  className={`rounded text-zinc-900 underline ${focus}`}
+                >
+                  {terminal ? `paste it into ${kind?.label}` : "run it in your terminal"}
+                </button>
+              </p>
+            )}
+          </div>
+          <div className="w-full overflow-hidden rounded-md border border-zinc-200">
+            <div className={`flex min-h-11 items-center gap-3 px-4 font-medium ${copied ? "" : "text-zinc-500"}`}>
+              {copied ? (
+                <span className="grid h-[18px] w-[18px] place-items-center rounded-[5px] bg-zinc-900 text-white">
+                  <Tick size={12} />
+                </span>
+              ) : (
+                <span className="h-[18px] w-[18px] rounded-[5px] border border-zinc-300" />
+              )}
+              Copied
+            </div>
+            <div className="flex min-h-11 items-center gap-3 border-t border-zinc-200 px-4 font-medium text-zinc-500" aria-live="polite">
+              <span aria-hidden className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-zinc-200 border-t-zinc-900 motion-reduce:animate-none" />
+              Waiting for {kind?.label}
+            </div>
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <details className="w-full text-[13px] text-zinc-500">
+            <summary className={`cursor-pointer rounded ${focus}`}>Show the text</summary>
+            <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-all rounded border border-zinc-200 bg-zinc-50 p-3 font-mono text-xs text-zinc-800">{cmd}</pre>
+          </details>
+          <div className="flex gap-5 text-[13px] text-zinc-500">
+            <button type="button" onClick={() => setMade(null)} className={`rounded hover:text-zinc-900 ${focus}`}>
+              Back
+            </button>
+            {first && (
+              <button type="button" onClick={onClose} className={`rounded hover:text-zinc-900 ${focus}`}>
+                Skip for Now
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div key="pick" className="soft-in flex w-full max-w-[560px] flex-1 flex-col items-center justify-center gap-7">
+          <h2 className={title}>Which agent do you use?</h2>
+          <div className="grid w-full grid-cols-3 gap-4">
+            {KINDS.map((k, i) => (
+              <button
+                key={k.kind}
+                ref={i === 0 ? firstRef : undefined}
+                type="button"
+                disabled={busy}
+                onClick={() => void choose(k.kind)}
+                className={`flex aspect-square flex-col items-center justify-center gap-3.5 rounded-md border border-zinc-200 bg-white hover:border-zinc-900 disabled:opacity-60 ${focus}`}
+              >
+                <svg viewBox="0 0 24 24" className="h-11 w-11" fill={k.color} aria-hidden>
+                  <path d={k.logo} />
+                </svg>
+                <span className="text-[15px] font-semibold">{k.label}</span>
+              </button>
+            ))}
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          {first && (
+            <button type="button" onClick={onClose} className={`rounded text-[13px] text-zinc-500 hover:text-zinc-900 ${focus}`}>
+              Skip for Now
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -46,10 +46,16 @@ export function errStatus(e: unknown): number {
   return (e as { status?: number }).status ?? 500;
 }
 
+/** A picture someone uploaded is stored on their account; everyone loads it from one short link. */
+export function pictureLink(userId: string, stored: string | null): string | null {
+  if (!stored || !stored.startsWith("data:")) return stored;
+  return `/api/avatar/${encodeURIComponent(userId)}?v=${stored.length}-${stored.slice(-8).replace(/[^A-Za-z0-9]/g, "")}`;
+}
+
 export async function avatarUrls(userIds: string[]): Promise<Map<string, string | null>> {
   const users = await prisma.user.findMany({
     where: { id: { in: userIds } },
     select: { id: true, avatarUrl: true },
   });
-  return new Map(users.map((u) => [u.id, u.avatarUrl]));
+  return new Map(users.map((u) => [u.id, pictureLink(u.id, u.avatarUrl)]));
 }

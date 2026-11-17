@@ -41,6 +41,33 @@ export async function POST(req: Request) {
     }
   }
 
+  // A request the owner left from the room (for example "set up the preview") is handed over once.
+  const asks = await prisma.collaborationMessage.findMany({
+    where: {
+      workspaceId: agent.workspaceId,
+      type: "chat",
+      authorUserId: agent.ownerUserId,
+      createdAt: { gt: new Date(Date.now() - 24 * 3600_000) },
+      content: { path: ["forOwner"], equals: agent.ownerUserId },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+  });
+  let handed = false;
+  for (const m of asks) {
+    const c = m.content as { request?: unknown; deliveredAt?: unknown } | null;
+    if (!c || typeof c.request !== "string" || c.deliveredAt) continue;
+    // Only the newest waiting request is handed over; older ones are closed with it.
+    if (!handed) lines.push(
+      `REQUEST FROM THE ROOM: your owner pressed a button in the team room asking for the following. Do it now, in this turn, before anything else.\n${c.request}`
+    );
+    await prisma.collaborationMessage.update({
+      where: { id: m.id },
+      data: { content: { ...(m.content as object), deliveredAt: new Date().toISOString() } },
+    });
+    handed = true;
+  }
+
   await prisma.agent.update({
     where: { id: agent.id },
     data: { lastPromptAt: new Date(), ...(prompt ? { intent: prompt.slice(0, 140) } : {}) },

@@ -1,24 +1,27 @@
-import { AmbientBackground } from "@/components/AmbientBackground";
+import { GitHubIcon, MeshMark, MeshPage, STEPS_JOIN, meshBig, meshTitle } from "@/components/MeshPage";
+import { OrbitField } from "@/components/OrbitField";
 
-/** The signed-out front page: one sentence, one GitHub button. */
-export function SignedOutLanding({ next = "/" }: { next?: string }) {
+/** The signed-out front page: one line and one GitHub button. An invite link names the room instead. */
+export function SignedOutLanding({ next = "/", invitedTo }: { next?: string; invitedTo?: string }) {
   return (
-    <AmbientBackground>
-      <main className="flex max-w-2xl flex-col items-center text-center">
-        <p className="text-sm tracking-wide text-zinc-400">AgentSlack</p>
-        <h1 className="mt-4 text-3xl font-semibold tracking-tight text-zinc-50 sm:text-4xl">
-          Build one project together without stepping on each other.
-        </h1>
-        <a
-          href={`/api/auth/github/signin/start?return_to=${encodeURIComponent(next)}`}
-          className="mt-10 inline-flex h-14 items-center gap-3 rounded-xl bg-white px-8 text-base font-medium text-zinc-900 shadow-lg transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
-        >
-          <svg viewBox="0 0 16 16" className="h-6 w-6" fill="currentColor" aria-hidden>
-            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
-          </svg>
-          Continue with GitHub
-        </a>
-      </main>
-    </AmbientBackground>
+    <MeshPage step={1} labels={invitedTo ? STEPS_JOIN : undefined} backdrop={<OrbitField />}>
+      <div className="flex flex-col items-center gap-5">
+        <span className="flex flex-col items-center gap-2.5 text-zinc-900">
+          <MeshMark size={56} dots={90} />
+          <span className="text-sm font-bold uppercase tracking-[0.14em]">Mesh</span>
+        </span>
+        {invitedTo ? (
+          <h1 className={meshTitle}>
+            You have been invited to <span className="whitespace-nowrap">{invitedTo}</span>
+          </h1>
+        ) : (
+          <h1 className={meshTitle}>Different Agents, Same Project</h1>
+        )}
+      </div>
+      <a href={`/api/auth/github/signin/start?return_to=${encodeURIComponent(next)}`} className={meshBig}>
+        <GitHubIcon white />
+        Continue with GitHub
+      </a>
+    </MeshPage>
   );
 }
