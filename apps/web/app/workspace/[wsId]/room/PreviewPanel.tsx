@@ -125,6 +125,7 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
   const [justLive, setJustLive] = useState(false);
   const [later, setLater] = useState(false);
   const [skipped, setSkipped] = useState(false);
+  const [sure, setSure] = useState(false);
   const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Parent bumps reloadKey after a change reaches the room.
@@ -174,6 +175,20 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
     if (err) return setLinkErr(err);
     setEditing(false);
     setHost(null);
+  }
+
+  // The link belongs to the room, so removing it removes the preview for the whole team.
+  async function disconnect() {
+    setSaving(true);
+    setLinkErr(null);
+    const err = await onSaveLinks({ previewUrl: "" });
+    setSaving(false);
+    setSure(false);
+    if (err) return setLinkErr(err);
+    setPreviewIn("");
+    setEditing(false);
+    setHost(null);
+    setSkipped(false);
   }
 
   async function publish() {
@@ -314,6 +329,17 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
                   >
                     Back
                   </button>
+                  {previewUrl && (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => (sure ? void disconnect() : setSure(true))}
+                      onBlur={() => setSure(false)}
+                      className={`ml-auto inline-flex h-9 items-center rounded px-3 text-sm font-semibold ${sure ? "bg-red-600 text-white hover:bg-red-700" : "text-red-600 hover:bg-red-50"} ${focus}`}
+                    >
+                      {sure ? "Disconnect for Everyone" : "Disconnect"}
+                    </button>
+                  )}
                 </div>
               </div>
             )}
