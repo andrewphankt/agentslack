@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { agentFromBearer, hashAgentToken } from "@/lib/agents";
 import { broadcastWorkspaceEvent } from "@/lib/realtime/broadcast";
+import { ROOM_PUBLIC_KEY } from "@/lib/roomCoreSig";
 
 export const dynamic = "force-dynamic";
 
@@ -71,18 +72,28 @@ D="$CLAUDE_PROJECT_DIR"
 [ -n "$D" ] || D=$(git rev-parse --show-toplevel 2>/dev/null)
 cd "$D" 2>/dev/null || exit 0
 CLAUDE_PROJECT_DIR="$PWD"; export CLAUDE_PROJECT_DIR
+# Only a complete, valid script that the Mesh team signed replaces the current one.
+fetch_core() {
+  curl -fsS --max-time "$1" "$U/api/connect/core" -o .agentslack/core.new 2>/dev/null || return 1
+  [ "$(tail -n 1 .agentslack/core.new)" = "# mesh-core-end" ] || return 1
+  sh -n .agentslack/core.new 2>/dev/null || return 1
+  if [ -f .agentslack/room.pub ]; then
+    command -v openssl >/dev/null 2>&1 || return 1
+    curl -fsS --max-time "$1" "$U/api/connect/core?sig=1" -o .agentslack/core.sig64 2>/dev/null || return 1
+    openssl base64 -d -A -in .agentslack/core.sig64 -out .agentslack/core.sig 2>/dev/null || return 1
+    openssl dgst -sha256 -verify .agentslack/room.pub -signature .agentslack/core.sig .agentslack/core.new >/dev/null 2>&1 || return 1
+  fi
+  return 0
+}
 case "$1" in
-  prompt|start)
+  prompt|start|fetch)
     U=$(git config --local agentslack.url 2>/dev/null)
-    if [ -n "$U" ] && [ ! -f .agentslack/no-update ]; then
-      # Only a complete, valid script from this project's own room replaces the current one.
-      if curl -fsS --max-time 3 "$U/api/connect/core" -o .agentslack/core.new 2>/dev/null \
-        && [ "$(tail -n 1 .agentslack/core.new)" = "# mesh-core-end" ] \
-        && sh -n .agentslack/core.new 2>/dev/null; then
-        mv .agentslack/core.new .agentslack/core.sh
-      fi
-      rm -f .agentslack/core.new
+    if [ -n "$U" ] && { [ "$1" = "fetch" ] || [ ! -f .agentslack/no-update ]; }; then
+      t=3; [ "$1" = "fetch" ] && t=10
+      if fetch_core "$t"; then mv .agentslack/core.new .agentslack/core.sh; fi
+      rm -f .agentslack/core.new .agentslack/core.sig .agentslack/core.sig64
     fi
+    [ "$1" = "fetch" ] && exit 0
     ;;
 esac
 [ -f .agentslack/core.sh ] || exit 0
@@ -93,7 +104,13 @@ for h in prompt before-edit stop; do
 done
 printf '#!/bin/sh\nexec sh "$(git rev-parse --show-toplevel 2>/dev/null)/.agentslack/run.sh" "$@"\n' > .agentslack/room.sh
 chmod +x .agentslack/run.sh .agentslack/room.sh .agentslack/hooks/prompt.sh .agentslack/hooks/before-edit.sh .agentslack/hooks/stop.sh
-curl -fsS --max-time 10 "$ORIGIN/api/connect/core" -o .agentslack/core.sh || fail "could not reach the room. Check your connection and run this again."
+# The key that checks the room's script is really from Mesh. It can only check, never sign.
+cat > .agentslack/room.pub <<'AS_EOF'
+__PUBKEY__
+AS_EOF
+rm -f .agentslack/core.sh
+sh .agentslack/run.sh fetch
+[ -f .agentslack/core.sh ] || fail "could not get the room's script, or its signature did not match. Check your connection and run this again."
 
 
 HOOKS='{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.agentslack/hooks/prompt.sh"}]}],"PreToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.agentslack/hooks/before-edit.sh"}]}],"Stop":[{"hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.agentslack/hooks/stop.sh"}]}]}}'
@@ -192,7 +209,7 @@ export async function GET(req: Request) {
   const proto = req.headers.get("x-forwarded-proto");
   const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
   const base = host && proto ? `${proto.split(",")[0].trim()}://${host}` : origin;
-  return new Response(SCRIPT.replace("__ORIGIN__", base.replace(/'/g, "")), {
+  return new Response(SCRIPT.replace("__ORIGIN__", base.replace(/'/g, "")).replace("__PUBKEY__", ROOM_PUBLIC_KEY), {
     headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
   });
 }

@@ -139,7 +139,10 @@ export async function handleGithubSignInCallback(
   if (byEmail) {
     resolvedUserId = byEmail.id;
     if (gh.avatarUrl)
-      await prisma.user.update({ where: { id: byEmail.id }, data: { avatarUrl: gh.avatarUrl } });
+      await prisma.user.updateMany({
+        where: { id: byEmail.id, OR: [{ avatarUrl: null }, { NOT: { avatarUrl: { startsWith: "data:" } } }] },
+        data: { avatarUrl: gh.avatarUrl },
+      });
   } else {
     const existingGhId = await prisma.user.findUnique({
       where: { id: userId },
@@ -147,7 +150,10 @@ export async function handleGithubSignInCallback(
     if (existingGhId) {
       resolvedUserId = existingGhId.id;
       if (gh.avatarUrl)
-        await prisma.user.update({ where: { id: existingGhId.id }, data: { avatarUrl: gh.avatarUrl } });
+        await prisma.user.updateMany({
+        where: { id: existingGhId.id, OR: [{ avatarUrl: null }, { NOT: { avatarUrl: { startsWith: "data:" } } }] },
+        data: { avatarUrl: gh.avatarUrl },
+      });
     } else {
       let candidate = userId;
       let n = 0;

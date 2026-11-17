@@ -22,6 +22,7 @@ const SIZES = {
   20: { box: "h-5 w-5", text: "text-[10px]" },
   24: { box: "h-6 w-6", text: "text-[11px]" },
   32: { box: "h-8 w-8", text: "text-sm" },
+  44: { box: "h-11 w-11", text: "text-base" },
 } as const;
 
 /** People are round, agents are square (rounded-md) and show a 2-letter `code`. */
@@ -37,7 +38,7 @@ export function Avatar({
   avatarUrl?: string | null;
   agent?: boolean;
   code?: string;
-  size?: 20 | 24 | 32;
+  size?: 20 | 24 | 32 | 44;
   className?: string;
 }) {
   const sz = SIZES[size];
@@ -96,7 +97,7 @@ export function AgentAvatar({
   kind?: string;
   /** Kept for callers; the badge is the tool's logo now, not a colour. */
   slot?: number;
-  size?: 20 | 24 | 32;
+  size?: 20 | 24 | 32 | 44;
   ring?: string;
 }) {
   const big = size === 32;
@@ -110,6 +111,18 @@ export function AgentAvatar({
           <path d={BADGE[kind ?? ""]?.d ?? "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"} />
         </svg>
       </span>
+    </span>
+  );
+}
+
+/** In chat an agent wears its tool's own logo, in a square, so it never reads as a person. */
+export function AgentIcon({ kind, size = 32 }: { kind?: string; size?: number }) {
+  const b = BADGE[kind ?? ""];
+  return (
+    <span className="grid shrink-0 place-items-center rounded border border-zinc-200 bg-white" style={{ width: size, height: size }} aria-hidden>
+      <svg viewBox="0 0 24 24" width={size * 0.6} height={size * 0.6} fill={b?.color ?? "#52525b"}>
+        <path d={b?.d ?? "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"} />
+      </svg>
     </span>
   );
 }

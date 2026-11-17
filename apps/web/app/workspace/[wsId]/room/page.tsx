@@ -5,7 +5,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useJsonHeaders } from "@/hooks/useActorUserId";
 import { AccountMenu } from "./AccountMenu";
 import { AgentNote, UpdateCard } from "./AgentNote";
-import { AgentAvatar, Avatar, agentCode } from "./Avatar";
+import { AgentIcon, AgentAvatar, Avatar, agentCode } from "./Avatar";
 import { Composer } from "./Composer";
 import { Confirm } from "./Confirm";
 import { STEPS_JOIN } from "@/components/MeshPage";
@@ -1294,7 +1294,7 @@ export default function RoomPage() {
                       className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1"
                     >
                       {ag ? (
-                        <AgentAvatar ownerName={ag.ownerName} ownerAvatarUrl={ag.ownerAvatarUrl} kind={ag.kind} size={32} ring="ring-white" />
+                        <AgentIcon kind={ag.kind} size={32} />
                       ) : (
                         <Avatar
                           name={m.authorName}
@@ -1319,8 +1319,11 @@ export default function RoomPage() {
                       onMouseLeave={leaveCard}
                         className="rounded text-sm font-semibold text-zinc-900 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                       >
-                        {m.authorName}
+                        {ag ? `${ag.ownerName}'s ${ag.name}` : m.authorName}
                       </button>
+                      {m.isAgent && (
+                        <span className="self-center rounded border border-zinc-300 px-1 text-[10px] font-semibold uppercase leading-4 tracking-wide text-zinc-500">Agent</span>
+                      )}
                       {m.isAgent && <span className="text-xs text-zinc-500">agent</span>}
                       <span className="text-xs text-zinc-400">{hhmm(m.createdAt)}</span>
                     </div>

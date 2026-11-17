@@ -208,7 +208,8 @@ export default async function HomePage({
     return <SignedOutLanding next={next || "/"} invitedTo={room?.name} />;
   }
   if (next && next !== "/") redirect(next);
-  // Signed in: straight into the room you opened last. `/?rooms=1` still shows every room.
+  // Signed in: straight into the room you opened last. The old page listing every room is retired.
+  if (searchParams?.rooms) redirect("/");
   if (!searchParams?.rooms) {
     const memberships = await prisma.workspaceMember.findMany({
       where: { userId },
