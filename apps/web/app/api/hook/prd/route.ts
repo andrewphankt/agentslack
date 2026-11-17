@@ -18,5 +18,5 @@ export async function POST(req: Request) {
   if (body.length > PRD_MAX)
     return new Response(`Keep it under ${PRD_MAX} characters.\n`, { status: 400 });
   await postPrd(agent, body);
-  return new Response("Posted to #prd.\n", { status: 200 });
+  return new Response("Posted to #updates.\n", { status: 200 });
 }

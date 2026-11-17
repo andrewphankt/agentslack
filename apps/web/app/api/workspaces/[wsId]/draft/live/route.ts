@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { actorUserIdFromWorkspaceAuth } from "@/lib/auth";
 import { broadcastWorkspaceEvent } from "@/lib/realtime/broadcast";
 import { displayNames, errStatus } from "@/lib/chat";
-import { postPersonNote } from "@/lib/hooks";
+import { postUpdate } from "@/lib/hooks";
 import { draftStatus, githubTokenFor, goLive, repoForWorkspace } from "@/lib/github/draft";
 
 const MESSAGES = {
@@ -43,11 +43,13 @@ export async function POST(req: Request, ctx: { params: { wsId: string } }) {
 
   // Who is in the draft, taken just before sending it.
   let count = 0;
-  let who: string[] = [];
+  let items: { what: string; who: string }[] = [];
   try {
     const st = await draftStatus(token, repo.owner, repo.repo);
     count = st.ahead;
-    who = [...new Set(st.changes.map((c) => c.who))];
+    items = st.changes
+      .filter((c) => !/^Merge /.test(c.message))
+      .map((c) => ({ what: c.message === "Saved turn" || !c.message ? "Saved work" : c.message, who: c.who }));
   } catch {
     /* the note below falls back to a plain sentence */
   }
@@ -59,11 +61,8 @@ export async function POST(req: Request, ctx: { params: { wsId: string } }) {
     where: { id: wsId },
     data: { lastLiveAt: new Date(), lastLiveBy: me },
   });
-  const text =
-    count > 0
-      ? `Sent the draft live. ${count} ${count === 1 ? "change" : "changes"}${who.length ? ` from ${list(who)}` : ""}.`
-      : "Sent the draft live.";
-  await postPersonNote(wsId, me, text);
+  if (!items.length) items = [{ what: count > 0 ? `${count} saved ${count === 1 ? "change" : "changes"}` : "Published", who: myName }];
+  await postUpdate(wsId, me, items);
   await broadcastWorkspaceEvent(wsId, { type: "draft_changed" });
   return NextResponse.json({ ok: true });
 }

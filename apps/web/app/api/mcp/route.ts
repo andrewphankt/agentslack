@@ -47,7 +47,7 @@ const TOOLS = [
   {
     name: "write_prd",
     description:
-      "Post a short product summary (1–2 paragraphs, plain language: what this project is, who it is for, what exists so far) to the room's #prd channel.",
+      "Post a short product summary (1–2 paragraphs, plain language: what this project is, who it is for, what exists so far) to the room's #updates channel.",
     inputSchema: {
       type: "object",
       properties: { text: { type: "string", description: "The summary, 1–2 short paragraphs" } },
@@ -75,7 +75,7 @@ const TOOLS = [
   {
     name: "rename_channel",
     description:
-      "Rename a channel in your room. The built-in channels general, prd and changes cannot be renamed.",
+      "Rename a channel in your room. The built-in channels general, updates and changes cannot be renamed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -238,7 +238,7 @@ async function writePrd(agent: Agent, args: Record<string, unknown>): Promise<To
   if (!body) return text("text is required", true);
   if (body.length > PRD_MAX) return text(`text must be ${PRD_MAX} characters or fewer`, true);
   await postPrd(agent, body);
-  return text("Posted to #prd.");
+  return text("Posted to #updates.");
 }
 
 async function messagePerson(agent: Agent, args: Record<string, unknown>): Promise<ToolResult> {
@@ -284,7 +284,7 @@ async function messagePerson(agent: Agent, args: Record<string, unknown>): Promi
   return text(`Sent to ${hit[1]}.`);
 }
 
-const BUILT_IN = ["general", "prd", "changes"];
+const BUILT_IN = ["general", "updates", "prd", "changes"];
 
 /** "#My Design!" -> "my-design". Empty when nothing usable is left. */
 function channelSlug(raw: unknown): string {

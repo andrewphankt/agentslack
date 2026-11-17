@@ -185,7 +185,7 @@ export function ConnectAgent({
       role="dialog"
       aria-modal="true"
       aria-label="Connect your agent"
-      className="fixed inset-0 z-50 flex flex-col items-center overflow-y-auto bg-white px-6 py-7 text-zinc-900"
+      className="soft-in fixed inset-0 z-50 flex flex-col items-center overflow-y-auto bg-white px-6 py-7 text-zinc-900"
       style={{ colorScheme: "light" }}
     >
       <div className="flex w-full items-center justify-center">

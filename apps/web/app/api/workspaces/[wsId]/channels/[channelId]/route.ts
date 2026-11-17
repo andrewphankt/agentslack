@@ -7,7 +7,7 @@ import { errStatus } from "@/lib/chat";
 type Ctx = { params: { wsId: string; channelId: string } };
 
 /** The three every room starts with. Agents post to them by name, so they stay. */
-const CORE = new Set(["general", "prd", "changes"]);
+const CORE = new Set(["general", "updates", "prd", "changes"]);
 
 async function load(req: Request, ctx: Ctx) {
   const { wsId, channelId } = ctx.params;

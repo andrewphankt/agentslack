@@ -4,7 +4,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJsonHeaders } from "@/hooks/useActorUserId";
 import { AccountMenu } from "./AccountMenu";
-import { AgentNote } from "./AgentNote";
+import { AgentNote, UpdateCard } from "./AgentNote";
 import { AgentAvatar, Avatar, agentCode } from "./Avatar";
 import { Composer } from "./Composer";
 import { Confirm } from "./Confirm";
@@ -27,6 +27,8 @@ type Msg = {
   imageKind?: string;
   isAgent?: boolean;
   edited?: boolean;
+  title?: string | null;
+  items?: { what: string; who: string }[] | null;
   type?: string;
   createdAt: string;
 };
@@ -45,7 +47,9 @@ type AgentRow = {
   activeFile?: string | null;
 };
 
-const CORE = new Set(["general", "prd", "changes"]);
+const CORE = new Set(["general", "updates", "prd", "changes"]);
+/** Channels that are a record, not a chat: nobody types in them. */
+const FEEDS = new Set(["updates", "changes"]);
 const DOTS = (
   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
     <circle cx="5" cy="12" r="1.8" />
@@ -238,9 +242,17 @@ export default function RoomPage() {
     });
   }
 
+  /** The last messages seen in each channel, so going back to one is instant. */
+  const seenRef = useRef(new Map<string, Msg[]>());
+  const [loadedId, setLoadedId] = useState<string | null>(null);
   const openChannel = useCallback((c: Channel, keepPreview = false) => {
     stickRef.current = true;
-    setCurrent(c);
+    const same = currentRef.current?.id === c.id;
+    if (!same) {
+      // Show what we last saw at once; the fresh copy replaces it when it arrives.
+      setMessages(seenRef.current.get(c.id) ?? []);
+      setCurrent(c);
+    }
     if (previewOpenRef.current && !keepPreview) {
       setPreviewOpen(false);
       try {
@@ -249,7 +261,6 @@ export default function RoomPage() {
         /* storage unavailable */
       }
     }
-    setMessages([]);
     setSidebarOpen(false);
     setUnread((u) => {
       if (!u.has(c.id)) return u;
@@ -280,7 +291,7 @@ export default function RoomPage() {
       }
       const list = await loadChannels();
       if (list) {
-        const prd = welcomeRef.current ? list.find((c) => c.kind === "channel" && c.name === "prd") : undefined;
+        const prd = welcomeRef.current ? list.find((c) => c.kind === "channel" && c.name === "updates") : undefined;
         const g = prd ?? list.find((c) => c.kind === "channel" && c.name === "general") ?? list[0];
         if (g) openChannel(g, true);
       }
@@ -319,11 +330,16 @@ export default function RoomPage() {
       if (!res.ok) return setErr(`Could not load messages (${res.status})`);
       setErr(null);
       setMessages(((await res.json()) as { messages: Msg[] }).messages);
+      setLoadedId(current.id);
     })();
     return () => {
       cancelled = true;
     };
   }, [api, current]);
+
+  useEffect(() => {
+    if (current && loadedId === current.id) seenRef.current.set(current.id, messages);
+  }, [current, loadedId, messages]);
 
   const reload = useCallback(async () => {
     const c = currentRef.current;
@@ -498,6 +514,21 @@ export default function RoomPage() {
     });
   }
 
+  const cardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopCardTimer = () => {
+    if (cardTimer.current) clearTimeout(cardTimer.current);
+    cardTimer.current = null;
+  };
+  /** Resting on a picture opens the card; leaving the picture and the card closes it. */
+  function hoverCard(userId: string | null | undefined, el: HTMLElement) {
+    stopCardTimer();
+    cardTimer.current = setTimeout(() => openCard(userId, el), 350);
+  }
+  function leaveCard() {
+    stopCardTimer();
+    cardTimer.current = setTimeout(() => setCard(null), 180);
+  }
+
   function openCard(userId: string | null | undefined, el: HTMLElement) {
     if (!userId) return;
     const r = el.getBoundingClientRect();
@@ -634,7 +665,9 @@ export default function RoomPage() {
   const plus =
     "rounded px-1 text-base leading-none text-zinc-500 hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900";
   const unreadDot = <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-500" />;
-  const shownMembers = members.slice(0, 5);
+  const feed = current?.kind === "channel" && FEEDS.has(current.name);
+  const others = members.filter((m) => m.userId !== me);
+  const shownMembers = others.slice(0, 5);
   const mine = members.find((m) => m.userId === me);
   const memberNames = useMemo(() => members.map((m) => m.name), [members]);
   const cardOf = card ? members.find((m) => m.userId === card.userId) : undefined;
@@ -712,25 +745,31 @@ export default function RoomPage() {
             onReorder={saveOrder}
             renderItem={(c) => {
               const active = !previewOpen && current?.id === c.id;
-              if (naming === c.id) return <input
-                autoFocus
-                value={nameText}
-                maxLength={40}
-                placeholder={c.name}
-                aria-label="Channel name"
-                onPointerDown={(e) => e.stopPropagation()}
-                onChange={(e) => setNameText(e.target.value)}
-                onBlur={() => void commitName()}
-                onKeyDown={(e) => {
-                  e.stopPropagation();
-                  if (e.key === "Enter") e.currentTarget.blur();
-                  if (e.key === "Escape") {
-                    setNameText("");
-                    setNaming(null);
-                  }
-                }}
-                className="w-full rounded border border-zinc-900 bg-white px-2 py-[3px] text-sm outline-none placeholder:text-zinc-400"
-              />;
+              if (naming === c.id) return (
+                <div className={`flex w-full items-center gap-1 rounded px-2 py-1 text-sm ${active ? "bg-zinc-900 text-white" : "bg-zinc-200/70 text-zinc-900"}`}>
+                <span aria-hidden>#</span>
+                <input
+                  autoFocus
+                  value={nameText}
+                  maxLength={40}
+                  placeholder={c.name}
+                  aria-label="Channel name"
+                  onFocus={(e) => e.currentTarget.select()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onChange={(e) => setNameText(e.target.value)}
+                  onBlur={() => void commitName()}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === "Enter") e.currentTarget.blur();
+                    if (e.key === "Escape") {
+                      setNameText("");
+                      setNaming(null);
+                    }
+                  }}
+                  className="min-w-0 flex-1 bg-transparent p-0 text-sm outline-none placeholder:text-zinc-400"
+                />
+              </div>
+              );
               return (
                 <div className="group relative">
                   <button
@@ -766,7 +805,7 @@ export default function RoomPage() {
                       role="menu"
                       onMouseDown={(e) => e.stopPropagation()}
                       onPointerDown={(e) => e.stopPropagation()}
-                      className="absolute right-0 top-full z-30 mt-1 w-36 rounded-md border border-zinc-900 bg-white p-1 text-zinc-900"
+                      className="pop-in absolute right-0 top-full z-30 mt-1 w-36 rounded-md border border-zinc-900 bg-white p-1 text-zinc-900"
                     >
                       <button
                         type="button"
@@ -797,25 +836,31 @@ export default function RoomPage() {
               );
             }}
           />
-          {naming === "new" && <div className="mt-px"><input
-                autoFocus
-                value={nameText}
-                maxLength={40}
-                placeholder="untitled"
-                aria-label="Channel name"
-                onPointerDown={(e) => e.stopPropagation()}
-                onChange={(e) => setNameText(e.target.value)}
-                onBlur={() => void commitName()}
-                onKeyDown={(e) => {
-                  e.stopPropagation();
-                  if (e.key === "Enter") e.currentTarget.blur();
-                  if (e.key === "Escape") {
-                    setNameText("");
-                    setNaming(null);
-                  }
-                }}
-                className="w-full rounded border border-zinc-900 bg-white px-2 py-[3px] text-sm outline-none placeholder:text-zinc-400"
-              /></div>}
+          {naming === "new" && (
+            <div className={`flex w-full items-center gap-1 rounded px-2 py-1 text-sm ${false ? "bg-zinc-900 text-white" : "bg-zinc-200/70 text-zinc-900"}`}>
+                <span aria-hidden>#</span>
+                <input
+                  autoFocus
+                  value={nameText}
+                  maxLength={40}
+                  placeholder="untitled"
+                  aria-label="Channel name"
+                  onFocus={(e) => e.currentTarget.select()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onChange={(e) => setNameText(e.target.value)}
+                  onBlur={() => void commitName()}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === "Enter") e.currentTarget.blur();
+                    if (e.key === "Escape") {
+                      setNameText("");
+                      setNaming(null);
+                    }
+                  }}
+                  className="min-w-0 flex-1 bg-transparent p-0 text-sm outline-none placeholder:text-zinc-400"
+                />
+              </div>
+          )}
         </div>
 
         <div>
@@ -937,21 +982,31 @@ export default function RoomPage() {
                   onMouseDown={(e) => e.stopPropagation()}
                       data-pop
                       onClick={(e) => openCard(m.userId, e.currentTarget)}
+                      onMouseEnter={(e) => hoverCard(m.userId, e.currentTarget)}
+                      onMouseLeave={leaveCard}
                   className="-ml-1.5 inline-flex rounded-full ring-2 ring-white focus-visible:outline-none focus-visible:ring-zinc-900"
                 >
                   <Avatar name={m.name} avatarUrl={m.avatarUrl} size={24} />
                 </button>
               ))}
-              {members.length > 5 && (
+              {others.length > 5 && (
                 <span
-                  title={members.slice(5).map((m) => m.name).join(", ")}
+                  title={others.slice(5).map((m) => m.name).join(", ")}
                   className="-ml-1.5 grid h-6 min-w-6 place-items-center rounded-full bg-zinc-200 px-1 text-[11px] font-medium text-zinc-700 ring-2 ring-white"
                 >
-                  +{members.length - 5}
+                  +{others.length - 5}
                 </span>
               )}
             </div>
-            <Invite inviteCode={inviteCode} />
+            <Invite
+              inviteCode={inviteCode}
+              roomName={wsName}
+              people={members.map((m) => (
+                <span key={m.userId} title={m.name} className="inline-flex">
+                  <Avatar name={m.name} avatarUrl={m.avatarUrl} size={24} />
+                </span>
+              ))}
+            />
             <span
               role="img"
               title={live ? "Live" : "Reconnecting"}
@@ -970,11 +1025,13 @@ export default function RoomPage() {
           }}
           className="flex-1 overflow-y-auto px-4 py-3"
         >
-          {messages.length === 0 && (
+          {messages.length === 0 && loadedId === current?.id && (
             <p className="text-sm text-zinc-500">
-              {current?.kind === "channel" && current.name === "prd"
-                ? "No PRD yet. Connect an agent and it will write one, or type what you are building."
-                : "No messages yet."}
+              {current?.kind === "channel" && current.name === "updates"
+                ? "Nothing published yet. Each time someone presses Publish, what went out is posted here."
+                : current?.kind === "channel" && current.name === "changes"
+                  ? "No changes yet. Each time an agent finishes a turn, what it changed is posted here."
+                  : "No messages yet."}
             </p>
           )}
           {grouped.map(({ m, collapse }) => {
@@ -993,6 +1050,8 @@ export default function RoomPage() {
                       onMouseDown={(e) => e.stopPropagation()}
                       data-pop
                       onClick={(e) => openCard(who, e.currentTarget)}
+                      onMouseEnter={(e) => hoverCard(who, e.currentTarget)}
+                      onMouseLeave={leaveCard}
                       className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1"
                     >
                       {ag ? (
@@ -1017,6 +1076,8 @@ export default function RoomPage() {
                         onMouseDown={(e) => e.stopPropagation()}
                       data-pop
                       onClick={(e) => openCard(who, e.currentTarget)}
+                      onMouseEnter={(e) => hoverCard(who, e.currentTarget)}
+                      onMouseLeave={leaveCard}
                         className="rounded text-sm font-semibold text-zinc-900 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                       >
                         {m.authorName}
@@ -1052,6 +1113,10 @@ export default function RoomPage() {
                         </button>
                       </div>
                     </div>
+                  ) : m.type === "update" ? (
+                    <UpdateCard title={m.title ?? "Update"} items={m.items} text={m.text} />
+                  ) : m.type === "prd" ? (
+                    <UpdateCard title="The plan" text={m.text} />
                   ) : m.isAgent && (m.type === undefined || m.type === "note") ? (
                     <AgentNote text={m.text} />
                   ) : (
@@ -1099,6 +1164,11 @@ export default function RoomPage() {
         </div>
 
         {err && <div className="px-4 pb-1 text-xs text-red-600">{err}</div>}
+        {feed ? (
+          <p className="border-t border-zinc-200 px-4 py-3 text-sm text-zinc-500">
+            {current?.name === "updates" ? "One post each time the team publishes." : "One post each time an agent finishes a turn."} Talk about it in # general.
+          </p>
+        ) : (
         <div
           className="border-t border-zinc-200 p-3"
           onDragOver={(e) => e.preventDefault()}
@@ -1146,6 +1216,7 @@ export default function RoomPage() {
             names={memberNames}
           />
         </div>
+        )}
       </main>
       )}
       </div>
@@ -1155,7 +1226,9 @@ export default function RoomPage() {
           role="dialog"
           aria-label={cardOf.name}
           onMouseDown={(e) => e.stopPropagation()}
-          className="fixed z-40 w-60 rounded-md border border-zinc-900 bg-white p-3 text-zinc-900"
+          onMouseEnter={stopCardTimer}
+          onMouseLeave={leaveCard}
+          className="pop-in fixed z-40 w-60 rounded-md border border-zinc-900 bg-white p-3 text-zinc-900"
           style={{ left: card.x, top: card.y }}
         >
           <div className="flex items-center gap-3">
