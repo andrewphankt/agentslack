@@ -191,9 +191,17 @@ function ExampleCard({ ex }: { ex: (typeof EXAMPLES)[number] }) {
   );
 }
 
-export default async function HomePage({ searchParams }: { searchParams?: { rooms?: string } }) {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams?: { rooms?: string; next?: string };
+}) {
+  // Where to go after signing in, e.g. an invite link. Only paths inside this site.
+  const raw = searchParams?.next ?? "";
+  const next = /^\/(?!\/)[^\\]*$/.test(raw) && !raw.includes("://") ? raw : "";
   const userId = await signedInUserId();
-  if (!userId) return <SignedOutLanding />;
+  if (!userId) return <SignedOutLanding next={next || "/"} />;
+  if (next && next !== "/") redirect(next);
   // Signed in: straight into the room you opened last. `/?rooms=1` still shows every room.
   if (!searchParams?.rooms) {
     const memberships = await prisma.workspaceMember.findMany({

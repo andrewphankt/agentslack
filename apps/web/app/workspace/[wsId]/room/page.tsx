@@ -621,6 +621,19 @@ export default function RoomPage() {
             </div>
           ))}
         </div>
+        <button
+          type="button"
+          className="mt-auto px-1 py-1 text-left text-xs text-zinc-500 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          onClick={async () => {
+            try {
+              await fetch("/api/auth/logout", { method: "POST" });
+            } finally {
+              window.location.href = "/";
+            }
+          }}
+        >
+          Sign out
+        </button>
       </aside>
       {showConnect && (
         <ConnectAgent

@@ -1,7 +1,7 @@
 import { AmbientBackground } from "@/components/AmbientBackground";
 
 /** The signed-out front page: one sentence, one GitHub button. */
-export function SignedOutLanding() {
+export function SignedOutLanding({ next = "/" }: { next?: string }) {
   return (
     <AmbientBackground>
       <main className="flex max-w-2xl flex-col items-center text-center">
@@ -10,7 +10,7 @@ export function SignedOutLanding() {
           Build one project together without stepping on each other.
         </h1>
         <a
-          href={`/api/auth/github/signin/start?return_to=${encodeURIComponent("/")}`}
+          href={`/api/auth/github/signin/start?return_to=${encodeURIComponent(next)}`}
           className="mt-10 inline-flex h-14 items-center gap-3 rounded-xl bg-white px-8 text-base font-medium text-zinc-900 shadow-lg transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
         >
           <svg viewBox="0 0 16 16" className="h-6 w-6" fill="currentColor" aria-hidden>
