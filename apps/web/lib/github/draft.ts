@@ -5,7 +5,7 @@ export const GITHUB_API = process.env.GITHUB_API_URL ?? "https://api.github.com"
 
 const DRAFT = "draft";
 
-export type DraftChange = { who: string; message: string; at: string };
+export type DraftChange = { who: string; message: string; at: string; sha: string };
 export type DraftStatus = {
   state: "ready" | "nothing" | "no-draft" | "no-access";
   ahead: number;
@@ -82,6 +82,7 @@ type Compare = {
   ahead_by?: number;
   behind_by?: number;
   commits?: {
+    sha?: string;
     commit?: { message?: string; author?: { name?: string; date?: string } };
     author?: { login?: string } | null;
   }[];
@@ -113,6 +114,7 @@ export async function draftStatus(
       who: x.commit?.author?.name ?? x.author?.login ?? "Someone",
       message: (x.commit?.message ?? "").split("\n")[0].slice(0, 200),
       at: x.commit?.author?.date ?? "",
+      sha: x.sha ?? "",
     }))
     .reverse()
     .slice(0, 20);
@@ -130,7 +132,9 @@ export async function goLive(
   token: string,
   owner: string,
   repo: string,
-  by: string
+  by: string,
+  /** Publish only up to this saved point; everything newer waits. */
+  upTo?: string
 ): Promise<GoLiveResult> {
   const base = repoPath(owner, repo);
   try {
@@ -142,7 +146,7 @@ export async function goLive(
     const def = ((await r.json()) as { default_branch?: string }).default_branch ?? "main";
     const m = await gh(token, `${base}/merges`, {
       method: "POST",
-      body: JSON.stringify({ base: def, head: DRAFT, commit_message: `Go live (${by})` }),
+      body: JSON.stringify({ base: def, head: upTo || DRAFT, commit_message: `Go live (${by})` }),
     });
     if (m.status === 201) {
       const sha = ((await m.json().catch(() => ({}))) as { sha?: string }).sha ?? "";

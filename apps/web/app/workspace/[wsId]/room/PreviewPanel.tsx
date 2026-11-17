@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { Avatar } from "./Avatar";
 import { LOGO } from "./logos";
 
@@ -15,7 +15,7 @@ export type DraftInfo = {
     state: "ready" | "nothing" | "no-draft" | "no-access";
     ahead: number;
     behind: number;
-    changes: { who: string; message: string; at: string }[];
+    changes: { who: string; message: string; at: string; sha?: string }[];
     files: string[];
   } | null;
 };
@@ -29,7 +29,7 @@ type Props = {
   trail?: ReactNode;
   avatars: Map<string, string | null>;
   onSaveLinks: (patch: { previewUrl?: string; liveUrl?: string }) => Promise<string | null>;
-  onGoLive: () => Promise<string | null>;
+  onGoLive: (upTo?: string) => Promise<string | null>;
 };
 
 const focus = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1";
@@ -119,14 +119,44 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
     []
   );
 
+  const [holdRaw, setHoldRaw] = useState(0);
+  const listRef = useRef<HTMLUListElement>(null);
   const ahead = draft?.status?.state === "ready" ? draft.status.ahead : 0;
   // "Not Yet" lasts until something new arrives.
-  useEffect(() => setLater(false), [ahead]);
+  useEffect(() => {
+    setLater(false);
+    setHoldRaw(0);
+  }, [ahead]);
 
   const previewUrl = draft?.previewUrl ?? null;
   const showSetup = !!draft && (editing || (!previewUrl && !skipped));
   const canGo = ahead > 0 && !!draft?.connected && !running;
   const rows = (draft?.status?.changes ?? []).filter((c) => !/^Merge /.test(c.message));
+  // The line: rows above it (newer) wait, rows below it are published. It can only sit
+  // above a row whose saved point is known.
+  const maxHold = rows.length > 1 && rows.every((c) => c.sha) ? rows.length - 1 : 0;
+  const hold = Math.min(holdRaw, maxHold);
+  function dragLine(e: React.PointerEvent<HTMLElement>) {
+    if (!maxHold) return;
+    e.preventDefault();
+    const list = listRef.current;
+    if (!list) return;
+    const move = (ev: PointerEvent) => {
+      const items = Array.from(list.querySelectorAll<HTMLElement>("[data-row]"));
+      let n = 0;
+      for (const el of items) {
+        const r = el.getBoundingClientRect();
+        if (ev.clientY > r.top + r.height / 2) n++;
+      }
+      setHoldRaw(Math.min(n, maxHold));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
 
   function startEdit() {
     setPreviewIn(draft?.previewUrl ?? "");
@@ -151,7 +181,7 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
   async function publish() {
     setRunning(true);
     setGoErr(null);
-    const err = await onGoLive();
+    const err = await onGoLive(hold > 0 ? rows[hold]?.sha : undefined);
     setRunning(false);
     if (err) return setGoErr(err);
     setJustLive(true);
@@ -306,7 +336,7 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
             </span>
           ) : ahead > 0 ? (
             <>
-              <span className="font-bold">{ahead} new</span>
+              <span className="font-bold">{hold > 0 ? `${rows.length - hold} of ${rows.length}` : `${ahead} new`}</span>
               {!later && <span className="text-zinc-500">Looks good?</span>}
             </>
           ) : (
@@ -340,16 +370,49 @@ export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLin
             </>
           )}
         </div>
-        <ul className="min-h-0 flex-1 overflow-y-auto">
+        <ul ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
           {rows.map((c, i) => (
-            <li key={i} className={`flex min-h-9 items-center gap-3 px-3.5 text-sm ${i ? "border-t border-zinc-200" : ""}`}>
-              <Avatar name={c.who} avatarUrl={avatars.get(c.who)} size={20} />
-              <span className="min-w-0 flex-1 truncate font-semibold" title={c.message}>
-                {c.message === "Saved turn" || !c.message ? "Saved work" : c.message}
-              </span>
-              <span className="w-28 shrink-0 truncate text-[13px] text-zinc-500">{c.who}</span>
-              <span className="w-10 shrink-0 text-right text-[13px] text-zinc-500">{ago(c.at)}</span>
-            </li>
+            <Fragment key={i}>
+              {i === hold && maxHold > 0 && (
+                <li
+                  role="slider"
+                  tabIndex={0}
+                  aria-label="Publish up to here"
+                  aria-orientation="vertical"
+                  aria-valuemin={0}
+                  aria-valuemax={maxHold}
+                  aria-valuenow={hold}
+                  aria-valuetext={`${rows.length - hold} of ${rows.length} will be published`}
+                  onPointerDown={dragLine}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowDown") setHoldRaw(Math.min(hold + 1, maxHold));
+                    else if (e.key === "ArrowUp") setHoldRaw(Math.max(hold - 1, 0));
+                    else return;
+                    e.preventDefault();
+                  }}
+                  className="group/line relative flex h-3 cursor-row-resize touch-none select-none items-center focus-visible:outline-none"
+                  title="Drag down to publish less"
+                >
+                  <span className="h-0.5 flex-1 bg-zinc-900" />
+                  <span className="absolute left-1/2 flex h-3 w-9 -translate-x-1/2 items-center justify-center gap-0.5 rounded-sm bg-zinc-900 group-focus-visible/line:ring-2 group-focus-visible/line:ring-zinc-900 group-focus-visible/line:ring-offset-1">
+                    <span className="h-0.5 w-0.5 rounded-full bg-white" />
+                    <span className="h-0.5 w-0.5 rounded-full bg-white" />
+                    <span className="h-0.5 w-0.5 rounded-full bg-white" />
+                  </span>
+                </li>
+              )}
+              <li
+                data-row
+                className={`flex min-h-9 items-center gap-3 px-3.5 text-sm ${i && i !== hold ? "border-t border-zinc-200" : ""} ${i < hold ? "opacity-40" : ""}`}
+              >
+                <Avatar name={c.who} avatarUrl={avatars.get(c.who)} size={20} />
+                <span className="min-w-0 flex-1 truncate font-semibold" title={c.message}>
+                  {c.message === "Saved turn" || !c.message ? "Saved work" : c.message}
+                </span>
+                <span className="w-28 shrink-0 truncate text-[13px] text-zinc-500">{i < hold ? "Waits" : c.who}</span>
+                <span className="w-10 shrink-0 text-right text-[13px] text-zinc-500">{ago(c.at)}</span>
+              </li>
+            </Fragment>
           ))}
         </ul>
       </section>

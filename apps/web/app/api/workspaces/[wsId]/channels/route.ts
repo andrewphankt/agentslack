@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { actorUserIdFromWorkspaceAuth } from "@/lib/auth";
 import { broadcastWorkspaceEvent } from "@/lib/realtime/broadcast";
-import { ensureUpdates } from "@/lib/hooks";
-import { avatarUrls, displayNames, ensureGeneral, errStatus } from "@/lib/chat";
+import { ensureChannel, ensureUpdates } from "@/lib/hooks";
+import { avatarUrls, displayNames, errStatus } from "@/lib/chat";
 
 type Ch = { id: string; kind: string; name: string; memberIds: string[] };
 
@@ -25,8 +25,8 @@ export async function GET(req: Request, ctx: { params: { wsId: string } }) {
   } catch (e) {
     return NextResponse.json({ error: "Unauthorized" }, { status: errStatus(e) });
   }
-  await ensureGeneral(wsId);
   await ensureUpdates(wsId);
+  await ensureChannel(wsId, "changes");
   const [rows, names, members] = await Promise.all([
     prisma.channel.findMany({
       where: {

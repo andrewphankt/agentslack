@@ -75,7 +75,7 @@ const TOOLS = [
   {
     name: "rename_channel",
     description:
-      "Rename a channel in your room. The built-in channels general, updates and changes cannot be renamed.",
+      "Rename a channel in your room. The built-in channels updates and changes cannot be renamed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -284,7 +284,7 @@ async function messagePerson(agent: Agent, args: Record<string, unknown>): Promi
   return text(`Sent to ${hit[1]}.`);
 }
 
-const BUILT_IN = ["general", "updates", "prd", "changes"];
+const BUILT_IN = ["updates", "prd", "changes"];
 
 /** "#My Design!" -> "my-design". Empty when nothing usable is left. */
 function channelSlug(raw: unknown): string {

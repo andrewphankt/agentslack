@@ -3,16 +3,18 @@ import { prisma } from "@/lib/prisma";
 import { actorUserIdFromWorkspaceAuth } from "@/lib/auth";
 import { broadcastWorkspaceEvent } from "@/lib/realtime/broadcast";
 import { errStatus } from "@/lib/chat";
+import { postPersonNote } from "@/lib/hooks";
 
 type Ctx = { params: { wsId: string; channelId: string } };
 
-/** The three every room starts with. Agents post to them by name, so they stay. */
-const CORE = new Set(["general", "updates", "prd", "changes"]);
+/** The two record channels. The room posts to them by name, so they stay. */
+const CORE = new Set(["updates", "prd", "changes"]);
 
 async function load(req: Request, ctx: Ctx) {
   const { wsId, channelId } = ctx.params;
+  let me: string;
   try {
-    await actorUserIdFromWorkspaceAuth(wsId, req);
+    me = await actorUserIdFromWorkspaceAuth(wsId, req);
   } catch (e) {
     return { res: NextResponse.json({ error: "Unauthorized" }, { status: errStatus(e) }) };
   }
@@ -21,7 +23,7 @@ async function load(req: Request, ctx: Ctx) {
   if (CORE.has(channel.name)) {
     return { res: NextResponse.json({ error: "This channel comes with the room and stays." }, { status: 400 }) };
   }
-  return { channel };
+  return { channel, me };
 }
 
 /** Rename a channel. */
@@ -43,6 +45,7 @@ export async function PATCH(req: Request, ctx: Ctx) {
     });
     if (taken) return NextResponse.json({ error: "There is already a channel with that name." }, { status: 409 });
     await prisma.channel.update({ where: { id: r.channel.id }, data: { name: slug } });
+    await postPersonNote(ctx.params.wsId, r.me, `Renamed #${r.channel.name} to #${slug}.`);
     await broadcastWorkspaceEvent(ctx.params.wsId, { type: "chat_channels_changed" });
   }
   return NextResponse.json({ name: slug });
@@ -53,6 +56,7 @@ export async function DELETE(req: Request, ctx: Ctx) {
   const r = await load(req, ctx);
   if (!r.channel) return r.res;
   await prisma.channel.delete({ where: { id: r.channel.id } });
+  await postPersonNote(ctx.params.wsId, r.me, `Deleted #${r.channel.name}.`);
   await broadcastWorkspaceEvent(ctx.params.wsId, { type: "chat_channels_changed" });
   return NextResponse.json({ ok: true });
 }

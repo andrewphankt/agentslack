@@ -34,6 +34,7 @@ type Msg = {
 };
 type AgentRow = {
   id: string;
+  name: string;
   kind: string;
   label: string;
   short: string;
@@ -47,7 +48,7 @@ type AgentRow = {
   activeFile?: string | null;
 };
 
-const CORE = new Set(["general", "updates", "prd", "changes"]);
+const CORE = new Set(["updates", "prd", "changes"]);
 /** Channels that are a record, not a chat: nobody types in them. */
 const FEEDS = new Set(["updates", "changes"]);
 const DOTS = (
@@ -217,10 +218,10 @@ export default function RoomPage() {
     return null;
   }
 
-  async function goLive(): Promise<string | null> {
+  async function goLive(upTo?: string): Promise<string | null> {
     const fallback = "The site did not respond. Try again in a minute.";
     try {
-      const res = await api("/draft/live", { method: "POST" });
+      const res = await api("/draft/live", { method: "POST", body: JSON.stringify(upTo ? { upTo } : {}) });
       const j = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string };
       await loadDraft();
       if (res.ok && j.ok) return null;
@@ -642,7 +643,7 @@ export default function RoomPage() {
   const agentByLabel = useMemo(() => new Map(agents.map((a) => [a.label, a])), [agents]);
 
   const orderedChannels = useMemo(
-    () => applyOrder(channels.filter((c) => c.kind === "channel"), savedOrder),
+    () => applyOrder(channels.filter((c) => c.kind === "channel" && !CORE.has(c.name)), savedOrder),
     [channels, savedOrder]
   );
 
@@ -669,7 +670,11 @@ export default function RoomPage() {
   const others = members.filter((m) => m.userId !== me);
   const shownMembers = others.slice(0, 5);
   const mine = members.find((m) => m.userId === me);
-  const memberNames = useMemo(() => members.map((m) => m.name), [members]);
+  const myAgent = agents.find((a) => a.mine)?.name ?? null;
+  const memberNames = useMemo(
+    () => [...members.map((m) => m.name), ...new Set(agents.map((a) => a.name))],
+    [members, agents]
+  );
   const cardOf = card ? members.find((m) => m.userId === card.userId) : undefined;
   const avatarByName = useMemo(() => new Map(members.map((m) => [m.name, m.avatarUrl ?? null])), [members]);
   const onlineIds = useMemo(() => new Set(agents.filter((a) => a.online).map((a) => a.id)), [agents]);
@@ -705,6 +710,7 @@ export default function RoomPage() {
       >
         <RoomSwitcher wsId={wsId} name={wsName} headers={headers} />
 
+        <div className="flex flex-col gap-px">
         <button
           type="button"
           className={row(previewOpen)}
@@ -723,6 +729,23 @@ export default function RoomPage() {
           </span>
           {newCount > 0 && <span className={`text-xs ${previewOpen ? "text-zinc-300" : "text-zinc-500"}`}>{newCount}</span>}
         </button>
+        {(["updates", "changes"] as const).map((name) => {
+          const c = channels.find((x) => x.kind === "channel" && x.name === name);
+          if (!c) return null;
+          const active = !previewOpen && current?.id === c.id;
+          return (
+            <button key={name} type="button" className={row(active)} aria-current={active ? "true" : undefined} onClick={() => openChannel(c)}>
+              <span className="flex min-w-0 items-center gap-2">
+                <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  {name === "updates" ? <path d="M5 21V4h11l-1.5 4L16 12H5" /> : <path d="M12 7v5l3 2M21 12a9 9 0 1 1-3-6.7M21 4v4h-4" />}
+                </svg>
+                <span className="truncate">{name === "updates" ? "Updates" : "Changes"}</span>
+              </span>
+              {unread.has(c.id) && unreadDot}
+            </button>
+          );
+        })}
+        </div>
 
         <div>
           <div className={`mb-1 flex items-center justify-between px-2 ${heading}`}>
@@ -746,7 +769,7 @@ export default function RoomPage() {
             renderItem={(c) => {
               const active = !previewOpen && current?.id === c.id;
               if (naming === c.id) return (
-                <div className={`flex w-full items-center gap-1 rounded px-2 py-1 text-sm ${active ? "bg-zinc-900 text-white" : "bg-zinc-200/70 text-zinc-900"}`}>
+                <div className={`flex w-full items-center gap-1 rounded px-2 py-1 text-sm ${active ? "bg-zinc-900 text-white" : "text-zinc-700"}`}>
                 <span aria-hidden>#</span>
                 <input
                   autoFocus
@@ -754,7 +777,7 @@ export default function RoomPage() {
                   maxLength={40}
                   placeholder={c.name}
                   aria-label="Channel name"
-                  onFocus={(e) => e.currentTarget.select()}
+                  onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
                   onPointerDown={(e) => e.stopPropagation()}
                   onChange={(e) => setNameText(e.target.value)}
                   onBlur={() => void commitName()}
@@ -766,7 +789,7 @@ export default function RoomPage() {
                       setNaming(null);
                     }
                   }}
-                  className="min-w-0 flex-1 bg-transparent p-0 text-sm outline-none placeholder:text-zinc-400"
+                  className="min-w-0 flex-1 bg-transparent p-0 text-sm caret-current outline-none placeholder:text-zinc-400"
                 />
               </div>
               );
@@ -837,7 +860,7 @@ export default function RoomPage() {
             }}
           />
           {naming === "new" && (
-            <div className={`flex w-full items-center gap-1 rounded px-2 py-1 text-sm ${false ? "bg-zinc-900 text-white" : "bg-zinc-200/70 text-zinc-900"}`}>
+            <div className={`flex w-full items-center gap-1 rounded px-2 py-1 text-sm ${false ? "bg-zinc-900 text-white" : "text-zinc-700"}`}>
                 <span aria-hidden>#</span>
                 <input
                   autoFocus
@@ -845,7 +868,7 @@ export default function RoomPage() {
                   maxLength={40}
                   placeholder="untitled"
                   aria-label="Channel name"
-                  onFocus={(e) => e.currentTarget.select()}
+                  onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
                   onPointerDown={(e) => e.stopPropagation()}
                   onChange={(e) => setNameText(e.target.value)}
                   onBlur={() => void commitName()}
@@ -857,7 +880,7 @@ export default function RoomPage() {
                       setNaming(null);
                     }
                   }}
-                  className="min-w-0 flex-1 bg-transparent p-0 text-sm outline-none placeholder:text-zinc-400"
+                  className="min-w-0 flex-1 bg-transparent p-0 text-sm caret-current outline-none placeholder:text-zinc-400"
                 />
               </div>
           )}
@@ -968,7 +991,7 @@ export default function RoomPage() {
           <div className="flex min-w-0 items-center gap-3">
             {menuBtn}
             <h1 className="truncate text-sm font-semibold">
-              {current ? (current.kind === "dm" ? current.title : `# ${current.name}`) : ""}
+              {current ? (current.kind === "dm" ? current.title : feed ? (current.name === "updates" ? "Updates" : "Changes") : `# ${current.name}`) : ""}
             </h1>
           </div>
           <div className="flex shrink-0 items-center gap-3">
@@ -1166,7 +1189,7 @@ export default function RoomPage() {
         {err && <div className="px-4 pb-1 text-xs text-red-600">{err}</div>}
         {feed ? (
           <p className="border-t border-zinc-200 px-4 py-3 text-sm text-zinc-500">
-            {current?.name === "updates" ? "One post each time the team publishes." : "One post each time an agent finishes a turn."} Talk about it in # general.
+            {current?.name === "updates" ? "One post each time the team publishes." : "One post each time an agent finishes a turn."} Talk about it in a channel.
           </p>
         ) : (
         <div
@@ -1214,6 +1237,7 @@ export default function RoomPage() {
             sending={sending}
             placeholder={current ? `Message ${current.kind === "dm" ? current.title : "#" + current.name}` : ""}
             names={memberNames}
+            agent={myAgent}
           />
         </div>
         )}
