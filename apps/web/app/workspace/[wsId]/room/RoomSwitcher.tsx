@@ -58,11 +58,8 @@ export function RoomSwitcher({
         onClick={() => setOpen((v) => !v)}
         className="flex h-10 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-zinc-200/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
       >
-        <MeshMark size={16} dots={30} />
-        <span className="shrink-0 font-bold uppercase tracking-[0.14em]">Mesh</span>
-        <span aria-hidden className="shrink-0 text-zinc-400">
-          /
-        </span>
+        <MeshMark size={22} dots={34} />
+        <span className="sr-only">Mesh</span>
         <span className="min-w-0 flex-1 truncate font-semibold">{title}</span>
         <svg
           viewBox="0 0 24 24"
