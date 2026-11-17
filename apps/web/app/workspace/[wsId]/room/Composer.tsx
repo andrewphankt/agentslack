@@ -248,7 +248,7 @@ export function Composer({
             title="Add a GIF"
             disabled={disabled}
             onClick={() => setGifOpen((v) => !v)}
-            className={`${iconBtn} w-11 text-[11px] font-bold tracking-wide ${gifOpen ? "bg-zinc-900 text-white hover:bg-zinc-900" : ""}`}
+            className={`${iconBtn} w-11 text-[11px] font-bold tracking-wide ${gifOpen ? "bg-zinc-900 !text-white hover:bg-zinc-900" : ""}`}
           >
             GIF
           </button>
