@@ -1,5 +1,6 @@
 "use client";
 
+import { AgentIcon } from "./Avatar";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { kindFromUrl } from "@/lib/embeds";
 import { LOGO } from "./logos";
@@ -26,6 +27,7 @@ export function Composer({
   placeholder,
   names,
   agent,
+  agentKind,
   gifSearch,
   onSendNow,
   onEscape,
@@ -42,6 +44,8 @@ export function Composer({
   names: string[];
   /** Your own agent's name: adds a button that starts a message to it. */
   agent?: string | null;
+  /** Which tool that agent is (claude, codex, gemini): picks the logo. */
+  agentKind?: string | null;
   /** Searches GIFs. `on: false` means search is not set up, so the box takes a link. */
   /** Sends this text as its own message right away, leaving the box untouched. */
   onSendNow?: (text: string) => void;
@@ -312,9 +316,7 @@ export function Composer({
             }}
             className={iconBtn}
           >
-            <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="#D97757" aria-hidden>
-              <path d={LOGO.claude} />
-            </svg>
+            <AgentIcon kind={agentKind ?? undefined} size={22} />
           </button>
         )}
         <div ref={gifRef} className="relative">

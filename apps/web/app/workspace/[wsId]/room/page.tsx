@@ -827,12 +827,11 @@ export default function RoomPage() {
   const myAgent = agents.find((a) => a.mine)?.name ?? null;
   // With several agents of your own, a request goes to whichever one you talk to next, so no single name is promised.
   const mineFirst = agents.find((a) => a.mine);
-  const myMention = mineFirst ? `${mineFirst.ownerName}'s ${mineFirst.name}` : null;
   const askLabel = agents.filter((a) => a.mine).length > 1 ? "Your Agent" : myAgent;
   const memberNames = useMemo(
-    // Every agent is its own entry, named after its person, so two Claudes are never one option.
-    () => [...members.map((m) => m.name), ...agents.map((a) => `${a.ownerName}'s ${a.name}`)],
-    [members, agents]
+    // People only. Agents cannot hear a mention yet; when they can, add them back as "<owner>'s Claude".
+    () => members.map((m) => m.name),
+    [members]
   );
   const cardOf = card ? members.find((m) => m.userId === card.userId) : undefined;
   const avatarByName = useMemo(() => new Map(members.map((m) => [m.name, m.avatarUrl ?? null])), [members]);
@@ -1525,7 +1524,8 @@ export default function RoomPage() {
             sending={sending}
             placeholder={current ? `Message ${current.kind === "dm" ? current.title : "#" + current.name}` : ""}
             names={memberNames}
-            agent={myMention}
+            agent={null}
+            agentKind={mineFirst?.kind}
             gifSearch={gifSearch}
             onSendNow={(t) => void sendNow(t)}
             onEscape={() => setReplyTo(null)}
