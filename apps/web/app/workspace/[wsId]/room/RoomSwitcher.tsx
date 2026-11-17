@@ -104,6 +104,9 @@ export function RoomSwitcher({
           <button type="button" role="menuitem" onClick={() => router.push("/start")} className={item}>
             New Room
           </button>
+          <button type="button" role="menuitem" onClick={() => router.push("/start")} className={item}>
+            Join a Room
+          </button>
           <Link role="menuitem" href={`/workspace/${wsId}`} className={`${item} text-zinc-600`}>
             Room Settings
           </Link>

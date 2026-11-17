@@ -379,10 +379,20 @@ export default function RoomPage() {
   }, [api]);
 
   // Realtime socket with ticket auth; reconnect after 2s.
+  /** Bring every list in the room up to date (people, channels, agents, changes, messages). */
+  const refreshAllRef = useRef(() => {});
+  refreshAllRef.current = () => {
+    void loadChannels();
+    void loadAgents();
+    void loadDraft();
+    void fetchNew();
+  };
+
   useEffect(() => {
     let closed = false;
     let ws: WebSocket | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let wasDown = false;
 
     async function connect() {
       if (closed) return;
@@ -397,7 +407,12 @@ export default function RoomPage() {
         ws = new WebSocket(
           `${wsHost}/ws?workspaceId=${wsId}&ticket=${encodeURIComponent(ticket)}`
         );
-        ws.onopen = () => setLive(true);
+        ws.onopen = () => {
+          setLive(true);
+          // Anything that happened while the line was down.
+          if (wasDown) refreshAllRef.current();
+          wasDown = true;
+        };
         ws.onmessage = (e) => {
           let ev: { type?: string; channelId?: string };
           try {
@@ -426,7 +441,7 @@ export default function RoomPage() {
               });
           } else if (ev.type === "chat_message_changed") {
             if (ev.channelId === currentRef.current?.id) void reloadRef.current();
-          } else if (ev.type === "chat_channels_changed") {
+          } else if (ev.type === "chat_channels_changed" || ev.type === "member_joined" || ev.type === "members_changed") {
             void loadChannels();
           } else if (ev.type === "draft_changed") {
             void loadDraftRef.current();
@@ -452,12 +467,32 @@ export default function RoomPage() {
     };
   }, [api, wsId, fetchNew, loadChannels, loadAgents]);
 
-  // Polling fallback when the socket is down.
+  // Polling fallback when the socket is down: messages often, the rest of the room slowly.
   useEffect(() => {
     if (live || !current) return;
     const t = setInterval(() => void fetchNew(), 5000);
-    return () => clearInterval(t);
+    const slow = setInterval(() => refreshAllRef.current(), 15_000);
+    return () => {
+      clearInterval(t);
+      clearInterval(slow);
+    };
   }, [live, current, fetchNew]);
+
+  // Safety net: coming back to the tab brings the whole room up to date.
+  useEffect(() => {
+    let last = 0;
+    const onBack = () => {
+      if (document.visibilityState !== "visible" || Date.now() - last < 5000) return;
+      last = Date.now();
+      refreshAllRef.current();
+    };
+    window.addEventListener("focus", onBack);
+    document.addEventListener("visibilitychange", onBack);
+    return () => {
+      window.removeEventListener("focus", onBack);
+      document.removeEventListener("visibilitychange", onBack);
+    };
+  }, []);
 
   // Auto-scroll.
   useEffect(() => {

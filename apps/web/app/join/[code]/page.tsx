@@ -30,7 +30,7 @@ export default function JoinPage() {
           repoAccess?: string;
         };
         if (!res.ok || !j.workspaceId) {
-          setError(j.error ?? "Could not join this room.");
+          setError(res.status === 404 ? "This invite link does not work. Ask your teammate to copy it again." : (j.error ?? "Could not join this room."));
           return;
         }
         const room = `/workspace/${j.workspaceId}/room`;

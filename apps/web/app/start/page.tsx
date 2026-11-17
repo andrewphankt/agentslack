@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { GitHubIcon, MeshPage, meshFocus, meshInput, meshSolid } from "@/components/MeshPage";
+import { GitHubIcon, MeshPage, meshFocus, meshGhost, meshInput, meshSolid } from "@/components/MeshPage";
 import { useJsonHeaders } from "@/hooks/useActorUserId";
 
 type Repo = {
@@ -20,6 +20,8 @@ export default function StartPage() {
   const [filter, setFilter] = useState("");
   const [link, setLink] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [invite, setInvite] = useState("");
+  const [inviteError, setInviteError] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -69,6 +71,18 @@ export default function StartPage() {
       setError("Could not make the room. Try again.");
       setBusy(null);
     }
+  }
+
+  /** An invite is the whole link or just its code. */
+  function join() {
+    const t = invite.trim();
+    const code = /\/join\/([A-Za-z0-9_-]+)/.exec(t)?.[1] ?? (/^[A-Za-z0-9_-]{4,}$/.test(t) ? t : "");
+    if (!code) {
+      setInviteError("That does not look like an invite link.");
+      return;
+    }
+    setBusy("join");
+    router.push(`/join/${code}`);
   }
 
   return (
@@ -148,6 +162,39 @@ export default function StartPage() {
           {error}
         </p>
       )}
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (invite.trim()) join();
+        }}
+        className="mt-5 border-t border-zinc-200 pt-5"
+      >
+        <label htmlFor="invite-link" className="block text-xs font-semibold text-zinc-600">
+          Joining a teammate? Paste their invite link
+        </label>
+        <div className="mt-1.5 flex gap-2">
+          <input
+            id="invite-link"
+            value={invite}
+            onChange={(e) => {
+              setInvite(e.target.value);
+              setInviteError("");
+            }}
+            placeholder="Invite link"
+            disabled={!!busy}
+            className={meshInput}
+          />
+          <button type="submit" disabled={!!busy || !invite.trim()} className={`${meshGhost} shrink-0`}>
+            {busy === "join" ? "Joining…" : "Join Room"}
+          </button>
+        </div>
+        {inviteError && (
+          <p role="alert" className="mt-2 text-sm text-red-600">
+            {inviteError}
+          </p>
+        )}
+      </form>
     </MeshPage>
   );
 }
