@@ -34,7 +34,10 @@ export async function displayNames(wsId: string): Promise<Map<string, string>> {
   return new Map(
     members.map((m) => [
       m.userId,
-      m.displayName ?? userName.get(m.userId) ?? m.userId,
+      // A member name equal to the raw id is a placeholder: use the person's real name.
+      (m.displayName && m.displayName !== m.userId ? m.displayName : null) ??
+        userName.get(m.userId) ??
+        m.userId,
     ])
   );
 }
