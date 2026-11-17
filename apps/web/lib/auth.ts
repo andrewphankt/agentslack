@@ -7,7 +7,16 @@ import {
   SESSION_COOKIE_NAME,
 } from "@/lib/sessionIssue";
 
+/**
+ * Local development only: with no session, act as the `X-User-Id` header or a
+ * dev user. On a hosted build this is refused, so nobody is signed in by default.
+ */
 export function userIdFromRequest(req: Request): string {
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_DEV_USER !== "1") {
+    const e = new Error("Sign in first.");
+    (e as Error & { status: number }).status = 401;
+    throw e;
+  }
   return (
     req.headers.get("x-user-id") ??
     process.env.DEV_USER_ID ??

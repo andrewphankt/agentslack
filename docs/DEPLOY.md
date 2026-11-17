@@ -40,6 +40,7 @@ If **Preview** and **Production** share one `DATABASE_URL`, every PR build runs 
 | `DATABASE_URL` | Neon **pooled** URL (Production + Preview as needed) |
 | `NEXT_PUBLIC_APP_URL` | Public site origin, no trailing slash, e.g. `https://xxx.vercel.app` or your domain |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub OAuth; callback `{NEXT_PUBLIC_APP_URL}/api/auth/github/callback` |
+| `GITHUB_OAUTH_SCOPE` | `read:user user:email repo` (needed to list private repos and for Go live) |
 | `AGENTMESH_OAUTH_SECRET` | Random string, **≥16 chars** (encrypts stored OAuth tokens) |
 | `REALTIME_INTERNAL_SECRET` | **Identical** on the realtime service |
 | `REALTIME_BROADCAST_URL` | `https://<your-realtime-public-host>/broadcast` (after Railway/Fly) |
