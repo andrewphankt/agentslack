@@ -138,6 +138,10 @@ export default function RoomPage() {
   const [unread, setUnread] = useState<Set<string>>(new Set());
   const [live, setLive] = useState(false);
   const [text, setText] = useState("");
+  // What you were typing in each channel waits there until you come back.
+  const textRef = useRef("");
+  textRef.current = text;
+  const typedRef = useRef(new Map<string, string>());
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   /** A new channel being named, or an existing one being renamed (its id). */
@@ -296,6 +300,10 @@ export default function RoomPage() {
     if (!same) {
       // Show what we last saw at once; the fresh copy replaces it when it arrives.
       setMessages(seenRef.current.get(c.id) ?? []);
+      if (currentRef.current) typedRef.current.set(currentRef.current.id, textRef.current);
+      setText(typedRef.current.get(c.id) ?? "");
+      setReplyTo(null);
+      setEditId(null);
       setCurrent(c);
     }
     if (previewOpenRef.current && !keepPreview) {
@@ -1291,7 +1299,10 @@ export default function RoomPage() {
                             e.preventDefault();
                             void saveEdit(m);
                           }
-                          if (e.key === "Escape") setEditId(null);
+                          if (e.key === "Escape") {
+                            setEditId(null);
+                            document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus();
+                          }
                         }}
                         className="w-full max-w-[72ch] resize-none rounded border border-zinc-900 bg-white px-2 py-1.5 text-sm outline-none"
                       />
@@ -1449,6 +1460,13 @@ export default function RoomPage() {
             agent={myAgent}
             gifSearch={gifSearch}
             onSendNow={(t) => void sendNow(t)}
+            onEscape={() => setReplyTo(null)}
+            onEditLast={() => {
+              const last = [...messages].reverse().find((x) => !x.isAgent && x.authorUserId === me && x.text && (x.type === undefined || x.type === "chat"));
+              if (!last) return;
+              setEditText(last.text);
+              setEditId(last.id);
+            }}
           />
         </div>
         )}

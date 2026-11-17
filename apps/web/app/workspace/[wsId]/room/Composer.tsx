@@ -28,6 +28,8 @@ export function Composer({
   agent,
   gifSearch,
   onSendNow,
+  onEscape,
+  onEditLast,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -43,6 +45,10 @@ export function Composer({
   /** Searches GIFs. `on: false` means search is not set up, so the box takes a link. */
   /** Sends this text as its own message right away, leaving the box untouched. */
   onSendNow?: (text: string) => void;
+  /** Escape with nothing else to close: for example, cancel a reply. */
+  onEscape?: () => void;
+  /** Up arrow in an empty box: edit your last message. */
+  onEditLast?: () => void;
   gifSearch?: (q: string) => Promise<{ on: boolean; items: Gif[] }>;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -57,6 +63,30 @@ export function Composer({
   // The file window takes a moment to appear: the button stays pressed and spins until it
   // closes (the page gets focus back), so the click visibly did something.
   const [opening, setOpening] = useState(false);
+  // The usual chat habits: the box is ready when a channel opens, stays ready after sending,
+  // and typing or pasting anywhere on the page lands in it.
+  const fine = () => typeof window !== "undefined" && !window.matchMedia("(pointer: coarse)").matches;
+  useEffect(() => {
+    if (!disabled && fine()) ref.current?.focus();
+  }, [placeholder, disabled]);
+  const wasSending = useRef(false);
+  useEffect(() => {
+    if (wasSending.current && !sending) ref.current?.focus();
+    wasSending.current = sending;
+  }, [sending]);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.altKey || e.isComposing) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+      if (document.querySelector('[role="dialog"], [role="menu"]')) return;
+      const paste = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v";
+      const typed = !e.metaKey && !e.ctrlKey && e.key.length === 1 && e.key !== " ";
+      if (paste || typed) ref.current?.focus();
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, []);
   useEffect(() => {
     if (!opening) return;
     const done = () => setOpening(false);
@@ -223,7 +253,7 @@ export function Composer({
           ref={ref}
           rows={1}
           value={value}
-          disabled={disabled || sending}
+          disabled={disabled}
           aria-label="Message"
           placeholder={placeholder}
           onChange={(e) => {
@@ -257,9 +287,15 @@ export function Composer({
                 return;
               }
             }
-            if (e.key === "Enter" && !e.shiftKey) {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
-              onSend();
+              if (!sending) onSend();
+              return;
+            }
+            if (e.key === "Escape" && onEscape) onEscape();
+            if (e.key === "ArrowUp" && !value && onEditLast) {
+              e.preventDefault();
+              onEditLast();
             }
           }}
           className="min-h-9 flex-1 resize-none bg-transparent px-1.5 py-2 text-sm leading-5 text-zinc-900 outline-none placeholder:text-zinc-400 disabled:opacity-60"
