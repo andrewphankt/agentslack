@@ -43,9 +43,17 @@ function agentMessage(origin: string, token: string, first: boolean, repoUrl: st
       "",
       `curl -fsS -X POST ${origin}/api/hook/prd -H "Authorization: Bearer ${token}" --data-urlencode "text=YOUR SUMMARY HERE"`,
     );
+  const name = repoUrl?.split("/").pop() || "This project";
   lines.push(
     "",
-    "When that is done, tell me to restart you once (exit, then run: claude --continue) so automatic saving and teammate warnings switch on.",
+    "When that is done, reply with only this and nothing else:",
+    "",
+    `${name} has been connected! Please:`,
+    "1. /exit",
+    "2. claude --continue",
+    "to return and sync with your teammates.",
+    "",
+    "If a step failed, say which one in a sentence or two instead.",
   );
   return lines.join("\n");
 }
