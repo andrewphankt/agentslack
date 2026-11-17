@@ -184,7 +184,68 @@ if [ -n "$(git status --porcelain .gitignore)" ]; then
   git push -q origin HEAD:draft >/dev/null 2>&1
 fi
 
-if [ -z "$AGENTSLACK_SKIP_MCP" ] && command -v claude >/dev/null 2>&1; then
+KIND="$2"
+
+# Agents without hooks (Codex, Gemini) run the same three steps themselves through this one script.
+cat > .agentslack/room.sh <<'AS_EOF'
+#!/bin/sh
+# room.sh start | check <file> | save
+cd "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || exit 0
+CLAUDE_PROJECT_DIR="$PWD"; export CLAUDE_PROJECT_DIR
+case "$1" in
+  start)
+    printf '{"prompt":""}' | sh .agentslack/hooks/prompt.sh
+    echo "Ready."
+    ;;
+  check)
+    [ -n "$2" ] || { echo "OK"; exit 0; }
+    case "$2" in /*) f="$2" ;; *) f="$PWD/$2" ;; esac
+    out=$(printf '{"tool_input":{"file_path":"%s"},"cwd":"%s"}' "$f" "$PWD" | sh .agentslack/hooks/before-edit.sh)
+    reason=$(printf '%s' "$out" | sed -n 's/.*"permissionDecisionReason":"\([^"]*\)".*/\1/p')
+    if [ -n "$reason" ]; then echo "STOP: $reason"; else echo "OK"; fi
+    ;;
+  save)
+    out=$(sh .agentslack/hooks/stop.sh)
+    reason=$(printf '%s' "$out" | sed -n 's/.*"reason":"\([^"]*\)".*/\1/p')
+    if [ -n "$reason" ]; then echo "CONFLICT: $reason Then run this again."; else echo "Saved to the team's shared draft."; fi
+    ;;
+  *) echo "use: room.sh start | check <file> | save" ;;
+esac
+AS_EOF
+chmod +x .agentslack/room.sh
+
+RULES_FILE=""
+case "$KIND" in
+  codex) RULES_FILE="AGENTS.md" ;;
+  gemini) RULES_FILE="GEMINI.md" ;;
+esac
+if [ -n "$RULES_FILE" ] && ! grep -q 'mesh:start' "$RULES_FILE" 2>/dev/null; then
+  # A rules file we create stays out of the team's commits; one that already exists is theirs.
+  [ -e "$RULES_FILE" ] || echo "$RULES_FILE" >> .git/info/exclude
+  cat >> "$RULES_FILE" <<'AS_EOF'
+
+<!-- mesh:start -->
+## Team room (Mesh)
+
+This project is shared with a team through Mesh. Everyone works on one shared "draft" branch. Follow these three rules on every request, without being asked:
+
+1. Before you start, run: sh .agentslack/room.sh start
+   It brings in teammates' latest work. Read what it prints; it may include a request from the room.
+2. Before you change a file, run: sh .agentslack/room.sh check <path>
+   If it prints STOP, do not change that file. Tell the user what it says.
+3. When you finish, run: sh .agentslack/room.sh save
+   It saves your work to the shared draft. If it prints CONFLICT, combine both versions so that both changes survive, remove the markers, and run it again.
+
+Never commit, push or switch branches yourself, and never work on the main branch. Publishing to the public site happens in the room, not here.
+<!-- mesh:end -->
+AS_EOF
+fi
+if [ "$KIND" = "gemini" ] && [ -z "$AGENTSLACK_SKIP_MCP" ] && command -v gemini >/dev/null 2>&1; then
+  gemini mcp remove agentslack >/dev/null 2>&1
+  gemini mcp add --transport http --header "Authorization: Bearer $TOKEN" agentslack "$ORIGIN/api/mcp" >/dev/null 2>&1
+fi
+
+if [ -z "$RULES_FILE" ] && [ -z "$AGENTSLACK_SKIP_MCP" ] && command -v claude >/dev/null 2>&1; then
   # Reconnecting: drop any older entry first, or the old address and key would stay.
   claude mcp remove agentslack >/dev/null 2>&1
   claude mcp add --transport http agentslack "$ORIGIN/api/mcp" --header "Authorization: Bearer $TOKEN" >/dev/null 2>&1
@@ -193,6 +254,11 @@ fi
 curl -fsS --max-time 5 -X POST -H "Authorization: Bearer $TOKEN" "$ORIGIN/api/connect" >/dev/null 2>&1
 
 echo "Connected this folder to your team room."
+if [ -n "$RULES_FILE" ]; then
+  echo "The team rules are in $RULES_FILE. Your agent brings in the team's work, checks before editing, and saves to the shared draft by itself."
+  echo "Start your agent again in this folder so it reads the rules."
+  exit 0
+fi
 echo "Your work now saves to the shared draft branch each time Claude finishes a turn."
 if [ -n "$HOOKS_NOTE" ]; then echo "$HOOKS_NOTE"; else echo "Start Claude Code here as usual. You never need to run git."; fi
 `;

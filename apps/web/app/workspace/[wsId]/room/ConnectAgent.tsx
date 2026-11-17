@@ -12,33 +12,30 @@ const KINDS = [
 
 const FIRST_TASK = "Read this project and write a short PRD to the room with the write_prd tool.";
 
+/** The one line that connects a project folder. Codex and Gemini are named so they get their rules file. */
+function install(kind: string, origin: string, token: string): string {
+  return `curl -fsSL ${origin}/api/connect | sh -s -- ${token}` + (kind === "claude" ? "" : ` ${kind}`);
+}
+
 function command(kind: string, origin: string, token: string, first: boolean): string {
-  if (kind === "claude")
-    return (
-      `curl -fsSL ${origin}/api/connect | sh -s -- ${token}` +
-      (first ? ` && claude "${FIRST_TASK}"` : "")
-    );
-  if (kind === "codex")
-    return (
-      `export AGENTSLACK_TOKEN=${token} && codex mcp add agentslack --url ${origin}/api/mcp --bearer-token-env-var AGENTSLACK_TOKEN` +
-      (first ? ` && codex "${FIRST_TASK}"` : "")
-    );
-  return (
-    `gemini mcp add --transport http --header "Authorization: Bearer ${token}" agentslack ${origin}/api/mcp` +
-    (first ? ` && gemini -i "${FIRST_TASK}"` : "")
-  );
+  return install(kind, origin, token) + (kind === "claude" && first ? ` && claude "${FIRST_TASK}"` : "");
 }
 
 /** A message to paste to an agent that is already running in the project. */
-function agentMessage(origin: string, token: string, first: boolean, repoUrl: string | null): string {
+function agentMessage(kind: string, label: string, origin: string, token: string, first: boolean, repoUrl: string | null): string {
   const name = repoUrl?.split("/").pop() || "";
   const lines = [
     repoUrl
       ? `Connect this project to my team room. The project is ${repoUrl}. If this folder is not a copy of it yet, get it first: use an existing copy if you can find one, otherwise run git clone ${repoUrl} ~/Desktop/${name} and work inside that folder. Then run this in the project folder:`
       : "Connect this project to my team room. Run this in the project folder:",
     "",
-    `curl -fsSL ${origin}/api/connect | sh -s -- ${token}`,
+    install(kind, origin, token),
   ];
+  if (kind !== "claude")
+    lines.push(
+      "",
+      `That adds a "Team room (Mesh)" section to ${kind === "codex" ? "AGENTS.md" : "GEMINI.md"}. Read it now and follow its three rules for the rest of this chat and in every later one.`,
+    );
   if (first)
     lines.push(
       "",
@@ -46,18 +43,23 @@ function agentMessage(origin: string, token: string, first: boolean, repoUrl: st
       "",
       `curl -fsS -X POST ${origin}/api/hook/prd -H "Authorization: Bearer ${token}" --data-urlencode "text=YOUR SUMMARY HERE"`,
     );
-  lines.push(
-    "",
-    "When that is done, reply with only this and nothing else:",
-    "",
-    `${name || "This project"} has been connected! Please:`,
-    "1. /exit",
-    "2. claude --continue",
-    "to return and sync with your teammates.",
-    "",
-    "If you had to make a new folder, replace step 2 with: open Claude Code inside that folder (say which folder).",
-    "If a step failed, say which one in a sentence or two instead.",
-  );
+  lines.push("", "When that is done, reply with only this and nothing else:", "");
+  if (kind === "claude")
+    lines.push(
+      `${name || "This project"} has been connected! Please:`,
+      "1. /exit",
+      "2. claude --continue",
+      "to return and sync with your teammates.",
+      "",
+      "If you had to make a new folder, replace step 2 with: open Claude Code inside that folder (say which folder).",
+    );
+  else
+    lines.push(
+      `${name || "This project"} has been connected! Your work now saves to the team's shared draft.`,
+      "",
+      `If you had to make a new folder, add: open ${label} inside that folder (say which folder).`,
+    );
+  lines.push("If a step failed, say which one in a sentence or two instead.");
   return lines.join("\n");
 }
 
@@ -105,11 +107,11 @@ export function ConnectAgent({
   const firstRef = useRef<HTMLButtonElement>(null);
 
   const kind = KINDS.find((k) => k.kind === made?.kind);
-  const tell = made?.kind === "claude" && !terminal;
+  const tell = !!made && !terminal;
   const cmd = !made
     ? ""
     : tell
-      ? agentMessage(window.location.origin, made.token, summary, made.repoUrl)
+      ? agentMessage(made.kind, kind?.label ?? "your agent", window.location.origin, made.token, summary, made.repoUrl)
       : command(made.kind, window.location.origin, made.token, summary);
   const connected = !!made && onlineIds.has(made.id);
 
@@ -214,7 +216,7 @@ export function ConnectAgent({
               </svg>
               Copy
             </button>
-            {made.kind === "claude" && (
+            {made && (
               <p className="text-[13px] text-zinc-500">
                 or{" "}
                 <button
@@ -225,7 +227,7 @@ export function ConnectAgent({
                   }}
                   className={`rounded text-zinc-900 underline ${focus}`}
                 >
-                  {terminal ? "paste it into Claude Code" : "run it in your terminal"}
+                  {terminal ? `paste it into ${kind?.label}` : "run it in your terminal"}
                 </button>
               </p>
             )}

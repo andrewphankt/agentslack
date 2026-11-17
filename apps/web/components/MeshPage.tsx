@@ -1,8 +1,40 @@
 import type { ReactNode } from "react";
 
+/** Points spread evenly over a sphere, tilted a little, seen from the front. */
+function spherePoints(n: number): { x: number; y: number; z: number }[] {
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  const tilt = 0.45;
+  return Array.from({ length: n }, (_, i) => {
+    const y0 = 1 - ((i + 0.5) / n) * 2;
+    const r = Math.sqrt(1 - y0 * y0);
+    const a = i * golden;
+    const x = Math.cos(a) * r;
+    const z0 = Math.sin(a) * r;
+    return { x, y: y0 * Math.cos(tilt) - z0 * Math.sin(tilt), z: y0 * Math.sin(tilt) + z0 * Math.cos(tilt) };
+  }).sort((p, q) => p.z - q.z);
+}
+const round = (v: number) => Math.round(v * 100) / 100;
+
+/** The Mesh mark: many dots, one sphere. Near dots are larger and darker. */
+export function MeshMark({ size = 18, dots = 34, className = "" }: { size?: number; dots?: number; className?: string }) {
+  return (
+    <svg viewBox="-12 -12 24 24" width={size} height={size} className={`shrink-0 ${className}`} fill="currentColor" aria-hidden>
+      {spherePoints(dots).map((p, i) => {
+        const near = (p.z + 1) / 2;
+        return <circle key={i} cx={round(p.x * 9.6)} cy={round(p.y * 9.6)} r={round((0.55 + near * 1.05) * Math.min(1, Math.sqrt(34 / dots)))} opacity={round(0.22 + near * 0.78)} />;
+      })}
+    </svg>
+  );
+}
+
 /** The product's name, set the same way everywhere. */
-export function Wordmark({ className = "" }: { className?: string }) {
-  return <span className={`font-bold uppercase tracking-[0.14em] text-zinc-900 ${className}`}>Mesh</span>;
+export function Wordmark({ className = "", mark = true }: { className?: string; mark?: boolean }) {
+  return (
+    <span className={`inline-flex items-center gap-2 font-bold uppercase tracking-[0.14em] text-zinc-900 ${className}`}>
+      {mark && <MeshMark />}
+      Mesh
+    </span>
+  );
 }
 
 /** GitHub's own mark (their PNG), black by default, white on a dark button. */
@@ -57,19 +89,23 @@ export function MeshPage({
   labels,
   children,
   wide = false,
+  backdrop,
 }: {
   /** Which circle is filling in. Leave out for a page that is not a step. */
   step?: number;
   labels?: string[];
   children: ReactNode;
   wide?: boolean;
+  /** Drawn behind everything, e.g. the sign-in orbits. */
+  backdrop?: ReactNode;
 }) {
   return (
     <div className="fixed inset-0 flex flex-col items-center overflow-y-auto bg-white px-6 py-7 text-zinc-900" style={{ colorScheme: "light" }}>
-      <div className="flex min-h-6 w-full shrink-0 items-center justify-center">
+      {backdrop}
+      <div className="relative flex min-h-6 w-full shrink-0 items-center justify-center">
         {step ? <Steps at={step} labels={labels} /> : <Wordmark className="text-sm" />}
       </div>
-      <div className={`soft-in flex w-full ${wide ? "max-w-[480px]" : "max-w-[400px]"} flex-1 flex-col items-center justify-center gap-7 py-10`}>
+      <div className={`soft-in relative flex w-full ${wide ? "max-w-[480px]" : "max-w-[400px]"} flex-1 flex-col items-center justify-center gap-7 py-10`}>
         {children}
       </div>
     </div>

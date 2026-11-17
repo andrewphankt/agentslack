@@ -99,6 +99,20 @@ body {
 .step-line { animation: step-line 0.4s 0.05s ease-out both; }
 .step-label { animation: step-label 0.5s 0.25s ease-out both; }
 
+/* Sign-in backdrop: robots drift along their orbits and turn slowly. */
+@keyframes orbit-go {
+  from { offset-distance: 0%; }
+  to { offset-distance: 100%; }
+}
+@keyframes orbit-spin {
+  to { transform: rotate(360deg); }
+}
+.orbit-go { animation: orbit-go linear infinite; }
+.orbit-spin { animation: orbit-spin linear infinite; transform-box: fill-box; transform-origin: center; }
+@media (prefers-reduced-motion: reduce) {
+  .orbit-go, .orbit-spin { animation-play-state: paused; }
+}
+
 /* A note that drops in from the top, e.g. "Joined tea-shop". */
 @keyframes drop-in {
   from { opacity: 0; transform: translate(-50%, -8px); }

@@ -1,5 +1,6 @@
 "use client";
 
+import { MeshMark } from "@/components/MeshPage";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -57,6 +58,7 @@ export function RoomSwitcher({
         onClick={() => setOpen((v) => !v)}
         className="flex h-10 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-zinc-200/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
       >
+        <MeshMark size={16} dots={30} />
         <span className="shrink-0 font-bold uppercase tracking-[0.14em]">Mesh</span>
         <span aria-hidden className="shrink-0 text-zinc-400">
           /
