@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJsonHeaders } from "@/hooks/useActorUserId";
 import { AgentNote } from "./AgentNote";
 import { Avatar, agentCode } from "./Avatar";
+import { DemoSwitch } from "./DemoSwitch";
 import { ConnectAgent } from "./ConnectAgent";
 import { Invite } from "./Invite";
 import { RoomSwitcher } from "./RoomSwitcher";
@@ -17,6 +18,7 @@ type Msg = {
   authorName: string;
   authorAvatarUrl?: string | null;
   text: string;
+  imageUrl?: string | null;
   isAgent?: boolean;
   type?: string;
   createdAt: string;
@@ -63,6 +65,8 @@ export default function RoomPage() {
   const [err, setErr] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
+  const [picture, setPicture] = useState<{ file: File; url: string } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [agents, setAgents] = useState<AgentRow[]>([]);
   const [showConnect, setShowConnect] = useState(false);
@@ -296,19 +300,42 @@ export default function RoomPage() {
     openChannel(channel);
   }
 
+  function attach(file: File | null | undefined) {
+    if (!file) return;
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) return setErr("Only PNG, JPG, GIF or WebP pictures");
+    if (file.size > 5 * 1024 * 1024) return setErr("Pictures can be up to 5 MB");
+    setErr(null);
+    setPicture((old) => {
+      if (old) URL.revokeObjectURL(old.url);
+      return { file, url: URL.createObjectURL(file) };
+    });
+  }
+
   async function send() {
     const body = text.trim();
-    if (!body || !current || sending) return;
+    if ((!body && !picture) || !current || sending) return;
     setSending(true);
     try {
+      let imageId: string | undefined;
+      if (picture) {
+        const up = await api(`/channels/${current.id}/images`, {
+          method: "POST",
+          headers: { "Content-Type": picture.file.type },
+          body: picture.file,
+        });
+        if (!up.ok) return setErr("Picture failed to upload");
+        imageId = ((await up.json()) as { id: string }).id;
+      }
       const res = await api(`/channels/${current.id}/messages`, {
         method: "POST",
-        body: JSON.stringify({ text: body }),
+        body: JSON.stringify({ text: body, imageId }),
       });
       if (!res.ok) return setErr("Message failed to send");
       const { message } = (await res.json()) as { message: Msg };
       setErr(null);
       setText("");
+      if (picture) URL.revokeObjectURL(picture.url);
+      setPicture(null);
       stickRef.current = true;
       setMessages((p) => mergeMsgs(p, [message]));
     } finally {
@@ -470,6 +497,7 @@ export default function RoomPage() {
             </div>
           ))}
         </div>
+        <DemoSwitch wsId={wsId} me={me} />
       </aside>
       {showConnect && (
         <ConnectAgent
@@ -574,9 +602,27 @@ export default function RoomPage() {
                 {m.isAgent && (m.type === undefined || m.type === "note") ? (
                   <AgentNote text={m.text} />
                 ) : (
-                  <div className="max-w-[72ch] whitespace-pre-wrap break-words text-sm text-zinc-800">
-                    {m.text}
-                  </div>
+                  <>
+                    {m.text && (
+                      <div className="max-w-[72ch] whitespace-pre-wrap break-words text-sm text-zinc-800">
+                        {m.text}
+                      </div>
+                    )}
+                    {m.imageUrl && (
+                      <a href={m.imageUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={m.imageUrl}
+                          alt={m.text || `Picture from ${m.authorName}`}
+                          onLoad={() => {
+                            const el = listRef.current;
+                            if (el && stickRef.current) el.scrollTop = el.scrollHeight;
+                          }}
+                          className="max-h-80 max-w-full rounded-lg border border-zinc-200 sm:max-w-md"
+                        />
+                      </a>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -584,8 +630,64 @@ export default function RoomPage() {
         </div>
 
         {err && <div className="px-4 pb-1 text-xs text-red-600">{err}</div>}
-        <div className="border-t border-zinc-200 p-3">
+        <div
+          className="border-t border-zinc-200 p-3"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            attach(e.dataTransfer.files?.[0]);
+          }}
+        >
+          {picture && (
+            <div className="mb-2 inline-flex items-start gap-1">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={picture.url} alt="Picture to send" className="h-20 rounded border border-zinc-200" />
+              <button
+                type="button"
+                aria-label="Remove picture"
+                className="grid h-6 w-6 place-items-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                onClick={() => {
+                  URL.revokeObjectURL(picture.url);
+                  setPicture(null);
+                }}
+              >
+                ×
+              </button>
+            </div>
+          )}
+          <div className="flex items-end gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            className="hidden"
+            onChange={(e) => {
+              attach(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            aria-label="Add a picture"
+            title="Add a picture (or paste one)"
+            disabled={!current}
+            onClick={() => fileRef.current?.click()}
+            className="grid h-10 w-10 shrink-0 place-items-center rounded border border-zinc-300 text-zinc-600 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-60"
+          >
+            <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <rect x="3" y="4" width="14" height="12" rx="2" />
+              <circle cx="7.5" cy="8.5" r="1.2" />
+              <path d="M3.5 14l4-4 3 3 2.5-2.5 3.5 3.5" />
+            </svg>
+          </button>
           <textarea
+            onPaste={(e) => {
+              const f = Array.from(e.clipboardData.files).find((x) => x.type.startsWith("image/"));
+              if (f) {
+                e.preventDefault();
+                attach(f);
+              }
+            }}
             value={text}
             disabled={sending || !current}
             onChange={(e) => setText(e.target.value)}
@@ -600,6 +702,7 @@ export default function RoomPage() {
             placeholder={current ? `Message ${current.kind === "dm" ? current.title : "#" + current.name}` : ""}
             className="w-full resize-none rounded border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-zinc-500 disabled:opacity-60"
           />
+          </div>
         </div>
       </main>
     </div>

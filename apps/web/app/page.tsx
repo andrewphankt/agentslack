@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -45,12 +44,20 @@ export default async function HomePage() {
           Continue with GitHub
         </a>
         {process.env.NODE_ENV !== "production" && (
-          <Link
-            href="/login?next=/start"
-            className="mt-6 text-xs text-zinc-500 underline-offset-4 hover:text-zinc-300 hover:underline"
-          >
-            Use the demo account
-          </Link>
+          <div className="mt-8 flex flex-col items-center gap-2 rounded-xl border border-dashed border-amber-500/50 px-5 py-4">
+            <span className="text-xs text-amber-400">Testing mode</span>
+            <div className="flex gap-2">
+              {["alice", "bob"].map((p) => (
+                <a
+                  key={p}
+                  href={`/api/auth/demo?user=${p}`}
+                  className="inline-flex h-11 items-center rounded-lg bg-zinc-800 px-5 text-sm font-medium capitalize text-zinc-100 hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                >
+                  Demo: {p}
+                </a>
+              ))}
+            </div>
+          </div>
         )}
       </main>
     </AmbientBackground>

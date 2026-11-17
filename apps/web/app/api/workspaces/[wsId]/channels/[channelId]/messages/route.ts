@@ -32,6 +32,7 @@ async function load(req: Request, ctx: Ctx) {
 function shape(
   m: {
     id: string;
+    workspaceId: string;
     authorUserId: string | null;
     authorAgentId: string | null;
     fromAgent: string;
@@ -42,8 +43,12 @@ function shape(
   names: Map<string, string>,
   avatars: Map<string, string | null>
 ) {
-  const text = (m.content as { text?: unknown } | null)?.text;
+  const content = m.content as { text?: unknown; imageId?: unknown } | null;
+  const text = content?.text;
+  const imageId = content?.imageId;
   return {
+    imageUrl:
+      typeof imageId === "string" ? `/api/workspaces/${m.workspaceId}/uploads/${imageId}` : null,
     id: m.id,
     authorUserId: m.authorUserId,
     authorName: m.authorAgentId
@@ -89,9 +94,19 @@ export async function POST(req: Request, ctx: Ctx) {
   const r = await load(req, ctx);
   if (!r.ok) return r.res;
   const { userId, channel } = r.ok;
-  const body = (await req.json().catch(() => ({}))) as { text?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { text?: unknown; imageId?: unknown };
   const text = typeof body.text === "string" ? body.text.trim() : "";
-  if (!text || text.length > 4000) {
+  let imageId: string | null = null;
+  if (typeof body.imageId === "string" && body.imageId) {
+    // The picture must be one this person uploaded to this channel.
+    const up = await prisma.upload.findFirst({
+      where: { id: body.imageId, channelId: channel.id, userId },
+      select: { id: true },
+    });
+    if (!up) return NextResponse.json({ error: "Picture not found" }, { status: 400 });
+    imageId = up.id;
+  }
+  if ((!text && !imageId) || text.length > 4000) {
     return NextResponse.json(
       { error: "Text must be 1-4000 characters" },
       { status: 400 }
@@ -105,7 +120,7 @@ export async function POST(req: Request, ctx: Ctx) {
       type: "chat",
       fromAgent: userId,
       toTarget: channel.kind === "dm" ? "dm" : "#" + channel.name,
-      content: { text },
+      content: imageId ? { text, imageId } : { text },
       messageId: randomUUID(),
     },
   });

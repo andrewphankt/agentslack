@@ -209,9 +209,25 @@ model Channel {
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   messages  CollaborationMessage[]
+  uploads   Upload[]
 
   @@unique([workspaceId, kind, name])
   @@index([workspaceId])
+}
+
+/// A picture posted in a channel. Stored in the database for now (max 5 MB each).
+model Upload {
+  id          String   @id @default(cuid())
+  workspaceId String
+  channelId   String
+  userId      String
+  mime        String
+  data        Bytes
+  createdAt   DateTime @default(now())
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([channelId])
 }
 
 model OAuthConnection {
