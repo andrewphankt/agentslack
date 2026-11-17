@@ -29,6 +29,7 @@ export async function POST(req: Request) {
 /**
  * `curl -fsSL ORIGIN/api/connect | sh -s -- TOKEN`
  * Sets up the three Claude Code hooks in the current git clone. POSIX sh only.
+ * The hooks are small stubs; what they run is served by ./core and can change without a reconnect.
  * Written with String.raw and no backticks or dollar-brace so the shell text stays literal.
  */
 const SCRIPT = String.raw`#!/bin/sh
@@ -59,90 +60,41 @@ done
 
 mkdir -p .agentslack/hooks .claude
 
-cat > .agentslack/hooks/prompt.sh <<'AS_EOF'
+# What gets installed here is tiny and never changes: each file hands over to run.sh, and
+# run.sh runs the room's current script (core.sh), fetching a fresh copy at the start of a turn.
+# So the room can be improved without anyone connecting again.
+cat > .agentslack/run.sh <<'AS_EOF'
 #!/bin/sh
-# UserPromptSubmit: pull the team's latest, tell the agent, record intent.
-cd "$CLAUDE_PROJECT_DIR" 2>/dev/null || exit 0
-T=$(git config --local agentslack.token 2>/dev/null)
-U=$(git config --local agentslack.url 2>/dev/null)
-[ -n "$T" ] && [ -n "$U" ] || exit 0
-code=$(curl -sS --max-time 3 -o .agentslack/prompt.out -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" --data-binary @- "$U/api/hook/prompt" 2>/dev/null)
-if [ "$code" = "401" ]; then
-  # This agent was disconnected in the room: forget the key and drop the room's tools,
-  # so nothing stale is left behind and connecting again starts clean.
-  rm -f .agentslack/prompt.out
-  git config --local --unset agentslack.token >/dev/null 2>&1
-  command -v claude >/dev/null 2>&1 && claude mcp remove agentslack >/dev/null 2>&1
-  echo "ROOM: this agent was disconnected from the team room. Nothing is being saved or shared now. To connect again, press + next to Agents in the room and paste the new message here."
-  exit 0
-fi
-[ "$code" = "200" ] && cat .agentslack/prompt.out 2>/dev/null
-rm -f .agentslack/prompt.out
-[ -f .agentslack/no-pull ] && exit 0
-before=$(git rev-parse HEAD 2>/dev/null) || exit 0
-if ! git pull -q --rebase --autostash origin draft >/dev/null 2>&1; then
-  git rebase --abort >/dev/null 2>&1
-  exit 0
-fi
-after=$(git rev-parse HEAD)
-if [ "$before" != "$after" ]; then
-  echo "ROOM UPDATE: teammates changed the project since your last turn. Your files are already up to date."
-  git log --format='- %an: %s' "$before..$after"
-  git diff --stat "$before..$after" | tail -5
-fi
-exit 0
+# Mesh: runs the room's current script for this project.
+# To stop automatic updates, create the file .agentslack/no-update
+D="$CLAUDE_PROJECT_DIR"
+[ -n "$D" ] || D=$(git rev-parse --show-toplevel 2>/dev/null)
+cd "$D" 2>/dev/null || exit 0
+CLAUDE_PROJECT_DIR="$PWD"; export CLAUDE_PROJECT_DIR
+case "$1" in
+  prompt|start)
+    U=$(git config --local agentslack.url 2>/dev/null)
+    if [ -n "$U" ] && [ ! -f .agentslack/no-update ]; then
+      # Only a complete, valid script from this project's own room replaces the current one.
+      if curl -fsS --max-time 3 "$U/api/connect/core" -o .agentslack/core.new 2>/dev/null \
+        && [ "$(tail -n 1 .agentslack/core.new)" = "# mesh-core-end" ] \
+        && sh -n .agentslack/core.new 2>/dev/null; then
+        mv .agentslack/core.new .agentslack/core.sh
+      fi
+      rm -f .agentslack/core.new
+    fi
+    ;;
+esac
+[ -f .agentslack/core.sh ] || exit 0
+exec sh .agentslack/core.sh "$@"
 AS_EOF
+for h in prompt before-edit stop; do
+  printf '#!/bin/sh\nexec sh "$CLAUDE_PROJECT_DIR/.agentslack/run.sh" %s\n' "$h" > ".agentslack/hooks/$h.sh"
+done
+printf '#!/bin/sh\nexec sh "$(git rev-parse --show-toplevel 2>/dev/null)/.agentslack/run.sh" "$@"\n' > .agentslack/room.sh
+chmod +x .agentslack/run.sh .agentslack/room.sh .agentslack/hooks/prompt.sh .agentslack/hooks/before-edit.sh .agentslack/hooks/stop.sh
+curl -fsS --max-time 10 "$ORIGIN/api/connect/core" -o .agentslack/core.sh || fail "could not reach the room. Check your connection and run this again."
 
-cat > .agentslack/hooks/before-edit.sh <<'AS_EOF'
-#!/bin/sh
-# PreToolUse on Edit|Write: ask the room who else is in this file.
-cd "$CLAUDE_PROJECT_DIR" 2>/dev/null || exit 0
-T=$(git config --local agentslack.token 2>/dev/null)
-U=$(git config --local agentslack.url 2>/dev/null)
-[ -n "$T" ] && [ -n "$U" ] || exit 0
-curl -fsS --max-time 3 -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" --data-binary @- "$U/api/hook/before-edit" 2>/dev/null
-exit 0
-AS_EOF
-
-cat > .agentslack/hooks/stop.sh <<'AS_EOF'
-#!/bin/sh
-# Stop: save this turn to the shared draft. Nobody types a git command.
-cd "$CLAUDE_PROJECT_DIR" 2>/dev/null || exit 0
-T=$(git config --local agentslack.token 2>/dev/null)
-U=$(git config --local agentslack.url 2>/dev/null)
-[ -n "$T" ] && [ -n "$U" ] || exit 0
-me=$(git config user.name 2>/dev/null); [ -n "$me" ] || me=teammate
-pending=.agentslack/pending-files
-if git grep -qE '^(<<<<<<<|>>>>>>>) ' >/dev/null 2>&1; then
-  echo '{"decision":"block","reason":"Conflict markers are still in the files. Finish combining both versions, remove every marker, then stop."}'
-  exit 0
-fi
-before=$(git rev-parse HEAD 2>/dev/null) || exit 0
-git add -A >/dev/null 2>&1
-if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
-  git commit -q --no-edit >/dev/null 2>&1
-elif ! git diff --cached --quiet; then
-  git commit -q -m "Saved turn" >/dev/null 2>&1
-  git diff --name-only "$before" HEAD >> "$pending" 2>/dev/null
-fi
-if ! git pull -q --no-rebase --no-edit origin draft >/dev/null 2>&1; then
-  files=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
-  if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
-    who=$(git log -1 --format=%an MERGE_HEAD)
-    printf '{"decision":"block","reason":"%s changed the same lines as you in: %s. Both versions are now in the file between conflict markers. Combine them so that BOTH changes survive, remove the markers, then stop. Tell the user in one sentence what you combined."}\n' "$who" "$files"
-  fi
-  exit 0
-fi
-if git push -q origin HEAD:draft >/dev/null 2>&1; then
-  if [ -s "$pending" ]; then
-    list=$(sort -u "$pending")
-    sha=$(git rev-parse --short HEAD)
-    curl -fsS --max-time 3 -X POST -H "Authorization: Bearer $T" --data-urlencode "files=$list" --data-urlencode "sha=$sha" "$U/api/hook/saved" >/dev/null 2>&1 && rm -f "$pending"
-  fi
-fi
-exit 0
-AS_EOF
-chmod +x .agentslack/hooks/prompt.sh .agentslack/hooks/before-edit.sh .agentslack/hooks/stop.sh
 
 HOOKS='{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.agentslack/hooks/prompt.sh"}]}],"PreToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.agentslack/hooks/before-edit.sh"}]}],"Stop":[{"hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.agentslack/hooks/stop.sh"}]}]}}'
 HOOKS_NOTE=""
@@ -185,34 +137,6 @@ if [ -n "$(git status --porcelain .gitignore)" ]; then
 fi
 
 KIND="$2"
-
-# Agents without hooks (Codex, Gemini) run the same three steps themselves through this one script.
-cat > .agentslack/room.sh <<'AS_EOF'
-#!/bin/sh
-# room.sh start | check <file> | save
-cd "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || exit 0
-CLAUDE_PROJECT_DIR="$PWD"; export CLAUDE_PROJECT_DIR
-case "$1" in
-  start)
-    printf '{"prompt":""}' | sh .agentslack/hooks/prompt.sh
-    echo "Ready."
-    ;;
-  check)
-    [ -n "$2" ] || { echo "OK"; exit 0; }
-    case "$2" in /*) f="$2" ;; *) f="$PWD/$2" ;; esac
-    out=$(printf '{"tool_input":{"file_path":"%s"},"cwd":"%s"}' "$f" "$PWD" | sh .agentslack/hooks/before-edit.sh)
-    reason=$(printf '%s' "$out" | sed -n 's/.*"permissionDecisionReason":"\([^"]*\)".*/\1/p')
-    if [ -n "$reason" ]; then echo "STOP: $reason"; else echo "OK"; fi
-    ;;
-  save)
-    out=$(sh .agentslack/hooks/stop.sh)
-    reason=$(printf '%s' "$out" | sed -n 's/.*"reason":"\([^"]*\)".*/\1/p')
-    if [ -n "$reason" ]; then echo "CONFLICT: $reason Then run this again."; else echo "Saved to the team's shared draft."; fi
-    ;;
-  *) echo "use: room.sh start | check <file> | save" ;;
-esac
-AS_EOF
-chmod +x .agentslack/room.sh
 
 RULES_FILE=""
 case "$KIND" in

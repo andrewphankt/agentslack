@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJsonHeaders } from "@/hooks/useActorUserId";
 import { AccountMenu } from "./AccountMenu";
 import { AgentNote, UpdateCard } from "./AgentNote";
@@ -154,6 +154,12 @@ export default function RoomPage() {
   const [card, setCard] = useState<{ userId: string; x: number; y: number } | null>(null);
   const [picture, setPicture] = useState<{ file: File; url: string } | null>(null);
   const [replyTo, setReplyTo] = useState<Msg | null>(null);
+  // Who is typing in the open channel right now (each entry fades out by itself).
+  const [typing, setTyping] = useState<{ userId: string; name: string; until: number }[]>([]);
+  const typedAtRef = useRef(0);
+  const meRef = useRef("");
+  // Messages that arrived while you were reading further up.
+  const [fresh, setFresh] = useState<{ count: number; firstId: string } | null>(null);
   const [savedOrder, saveOrder] = useSavedOrder(me ? `as:channel-order:${wsId}:${me}` : null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [agents, setAgents] = useState<AgentRow[]>([]);
@@ -176,6 +182,12 @@ export default function RoomPage() {
   const listRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   currentRef.current = current;
+  meRef.current = me;
+  useEffect(() => {
+    if (!typing.length) return;
+    const t = setInterval(() => setTyping((p) => p.filter((x) => x.until > Date.now())), 1000);
+    return () => clearInterval(t);
+  }, [typing.length]);
   messagesRef.current = messages;
   headersRef.current = headers;
 
@@ -304,6 +316,8 @@ export default function RoomPage() {
       setText(typedRef.current.get(c.id) ?? "");
       setReplyTo(null);
       setEditId(null);
+      setTyping([]);
+      setFresh(null);
       setCurrent(c);
     }
     if (previewOpenRef.current && !keepPreview) {
@@ -412,7 +426,16 @@ export default function RoomPage() {
     const res = await api(`/channels/${c.id}/messages${q}`);
     if (!res.ok || currentRef.current?.id !== c.id) return;
     const add = ((await res.json()) as { messages: Msg[] }).messages;
-    if (add.length) setMessages((p) => mergeMsgs(p, add));
+    if (!add.length) return;
+    const known = new Set(messagesRef.current.map((x) => x.id));
+    const theirs = add.filter((x) => !known.has(x.id) && (x.isAgent || x.authorUserId !== meRef.current));
+    if (theirs.length) {
+      // Whoever just posted is no longer typing.
+      setTyping((p) => p.filter((x) => !theirs.some((t) => !t.isAgent && t.authorUserId === x.userId)));
+      if (!stickRef.current && !listRef.current?.dataset.feed)
+        setFresh((f) => ({ count: (f?.count ?? 0) + theirs.length, firstId: f?.firstId ?? theirs[0].id }));
+    }
+    setMessages((p) => mergeMsgs(p, add));
   }, [api]);
 
   // Realtime socket with ticket auth; reconnect after 2s.
@@ -476,6 +499,10 @@ export default function RoomPage() {
                 n.add(ev.channelId!);
                 return n;
               });
+          } else if (ev.type === "typing") {
+            const who = ev as unknown as { userId?: string; name?: string };
+            if (ev.channelId === currentRef.current?.id && who.userId && who.userId !== meRef.current)
+              setTyping((p) => [...p.filter((x) => x.userId !== who.userId), { userId: who.userId!, name: who.name ?? "Someone", until: Date.now() + 4000 }]);
           } else if (ev.type === "chat_message_changed") {
             if (ev.channelId === currentRef.current?.id) void reloadRef.current();
           } else if (ev.type === "chat_channels_changed" || ev.type === "member_joined" || ev.type === "members_changed") {
@@ -713,6 +740,7 @@ export default function RoomPage() {
       if (picture) URL.revokeObjectURL(picture.url);
       setPicture(null);
       setReplyTo(null);
+      setFresh(null);
       stickRef.current = true;
       setMessages((p) => mergeMsgs(p, [message]));
     } finally {
@@ -798,9 +826,12 @@ export default function RoomPage() {
   const mine = members.find((m) => m.userId === me);
   const myAgent = agents.find((a) => a.mine)?.name ?? null;
   // With several agents of your own, a request goes to whichever one you talk to next, so no single name is promised.
+  const mineFirst = agents.find((a) => a.mine);
+  const myMention = mineFirst ? `${mineFirst.ownerName}'s ${mineFirst.name}` : null;
   const askLabel = agents.filter((a) => a.mine).length > 1 ? "Your Agent" : myAgent;
   const memberNames = useMemo(
-    () => [...members.map((m) => m.name), ...new Set(agents.map((a) => a.name))],
+    // Every agent is its own entry, named after its person, so two Claudes are never one option.
+    () => [...members.map((m) => m.name), ...agents.map((a) => `${a.ownerName}'s ${a.name}`)],
     [members, agents]
   );
   const cardOf = card ? members.find((m) => m.userId === card.userId) : undefined;
@@ -1213,6 +1244,7 @@ export default function RoomPage() {
           onScroll={(e) => {
             const el = e.currentTarget;
             stickRef.current = el.dataset.feed ? el.scrollTop < 80 : el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+            if (stickRef.current) setFresh((f) => (f ? { ...f, count: 0 } : f));
           }}
           className="flex-1 overflow-y-auto px-4 py-3"
         >
@@ -1234,11 +1266,19 @@ export default function RoomPage() {
                 </div>
               );
             const { m, collapse } = g;
+            const newLine = fresh?.firstId === m.id;
             const ag = m.isAgent ? agentByLabel.get(m.authorName) : undefined;
             const who = m.isAgent ? ag?.ownerUserId : m.authorUserId;
             const own = !m.isAgent && m.authorUserId === me;
             return (
-              <div key={m.id} id={`msg-${m.id}`} className={`group relative -mx-4 flex gap-3 px-4 py-0.5 hover:bg-zinc-50 ${collapse ? (feed ? "mt-1.5" : "") : feed ? "mt-4" : "mt-2.5"}`}>
+              <Fragment key={m.id}>
+              {newLine && (
+                <div className="mt-3 flex items-center gap-3" role="separator" aria-label="New messages">
+                  <span className="h-px flex-1 bg-zinc-900" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-900">New</span>
+                </div>
+              )}
+              <div id={`msg-${m.id}`} className={`group relative -mx-4 flex gap-3 px-4 py-0.5 hover:bg-zinc-50 ${collapse ? (feed ? "mt-1.5" : "") : feed ? "mt-4" : "mt-2.5"}`}>
                 <div className="w-8 shrink-0">
                   {collapse ? (
                     <span className="hidden pt-0.5 text-right text-[10px] leading-4 text-zinc-400 group-hover:block">{hhmm(m.createdAt)}</span>
@@ -1387,10 +1427,29 @@ export default function RoomPage() {
                   </div>
                 )}
               </div>
+              </Fragment>
             );
           })}
         </div>
 
+        {!!fresh?.count && (
+          <div className="relative h-0">
+            <button
+              type="button"
+              className="drop-in absolute bottom-2 left-1/2 inline-flex h-8 items-center gap-1.5 rounded-full bg-zinc-900 px-3.5 text-[13px] font-semibold text-white hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
+              onClick={() => {
+                stickRef.current = true;
+                listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+                setFresh((f) => (f ? { ...f, count: 0 } : f));
+              }}
+            >
+              {fresh.count} New {fresh.count === 1 ? "Message" : "Messages"}
+              <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M10 4v12M5 11l5 5 5-5" />
+              </svg>
+            </button>
+          </div>
+        )}
         {err && <div className="px-4 pb-1 text-xs text-red-600">{err}</div>}
         {feed ? (
           <p className="border-t border-zinc-200 px-4 py-3 text-sm text-zinc-500">
@@ -1450,14 +1509,20 @@ export default function RoomPage() {
           )}
           <Composer
             value={text}
-            onChange={setText}
+            onChange={(v) => {
+              setText(v);
+              if (v.trim() && current && Date.now() - typedAtRef.current > 2500) {
+                typedAtRef.current = Date.now();
+                void api(`/channels/${current.id}/typing`, { method: "POST" }).catch(() => {});
+              }
+            }}
             onSend={() => void send()}
             onFile={attach}
             disabled={!current}
             sending={sending}
             placeholder={current ? `Message ${current.kind === "dm" ? current.title : "#" + current.name}` : ""}
             names={memberNames}
-            agent={myAgent}
+            agent={myMention}
             gifSearch={gifSearch}
             onSendNow={(t) => void sendNow(t)}
             onEscape={() => setReplyTo(null)}
@@ -1468,6 +1533,15 @@ export default function RoomPage() {
               setEditId(last.id);
             }}
           />
+          <p className="mt-1 h-4 truncate px-1 text-xs text-zinc-500" aria-live="polite">
+            {typing.length === 1
+              ? `${typing[0].name} is typing`
+              : typing.length === 2
+                ? `${typing[0].name} and ${typing[1].name} are typing`
+                : typing.length > 2
+                  ? "Several people are typing"
+                  : ""}
+          </p>
         </div>
         )}
       </main>

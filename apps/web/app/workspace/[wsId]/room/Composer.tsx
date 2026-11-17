@@ -168,7 +168,7 @@ export function Composer({
     return m ? { text: m[2].toLowerCase(), at: caret - m[2].length - 1 } : null;
   }, [value, caret]);
   const matches = useMemo(
-    () => (query && !closed ? names.filter((n) => n.toLowerCase().startsWith(query.text)).slice(0, 6) : []),
+    () => (query && !closed ? names.filter((n) => n.toLowerCase().startsWith(query.text) || n.toLowerCase().includes(" " + query.text)).slice(0, 6) : []),
     [query, closed, names]
   );
   useEffect(() => setPick(0), [query?.text]);
