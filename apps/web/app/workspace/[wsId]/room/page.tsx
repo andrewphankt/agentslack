@@ -27,6 +27,7 @@ type AgentRow = {
   label: string;
   mine: boolean;
   online: boolean;
+  activeFile?: string | null;
 };
 
 function hhmm(iso: string) {
@@ -448,7 +449,12 @@ export default function RoomPage() {
               className="group flex items-center gap-2 rounded px-2 py-1 text-sm text-zinc-400"
             >
               <Avatar agent name={a.label} code={agentCode(a.kind)} size={20} />
-              <span className="min-w-0 flex-1 truncate">{a.label}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{a.label}</span>
+                {a.activeFile && (
+                  <span className="block truncate text-xs text-zinc-500">{a.activeFile}</span>
+                )}
+              </span>
               {a.online && <span className="h-2 w-2 rounded-full bg-emerald-400" />}
               {a.mine && (
                 <button

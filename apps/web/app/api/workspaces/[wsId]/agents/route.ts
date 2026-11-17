@@ -20,7 +20,7 @@ type Row = {
   lastSeenAt: Date | null;
 };
 
-function view(a: Row, me: string, names: Map<string, string>) {
+function view(a: Row, me: string, names: Map<string, string>, file: string | null = null) {
   return {
     id: a.id,
     kind: a.kind,
@@ -28,6 +28,7 @@ function view(a: Row, me: string, names: Map<string, string>) {
     label: agentLabel(a, names),
     ownerUserId: a.ownerUserId,
     mine: a.ownerUserId === me,
+    activeFile: file,
     online: !!a.lastSeenAt && Date.now() - a.lastSeenAt.getTime() < 2 * 60_000,
   };
 }
@@ -40,11 +41,22 @@ export async function GET(req: Request, ctx: { params: { wsId: string } }) {
   } catch (e) {
     return NextResponse.json({ error: "Unauthorized" }, { status: errStatus(e) });
   }
-  const [rows, names] = await Promise.all([
+  const [rows, names, recent] = await Promise.all([
     prisma.agent.findMany({ where: { workspaceId: wsId }, orderBy: { createdAt: "asc" } }),
     displayNames(wsId),
+    prisma.fileActivity.findMany({
+      where: { workspaceId: wsId, updatedAt: { gt: new Date(Date.now() - 10 * 60_000) } },
+      orderBy: { updatedAt: "desc" },
+    }),
   ]);
-  return NextResponse.json({ agents: rows.map((a) => view(a, me, names)) });
+  const latest = new Map<string, string>();
+  for (const f of recent) if (!latest.has(f.agentId)) latest.set(f.agentId, f.path);
+  return NextResponse.json({
+    agents: rows.map((a) => {
+      const p = latest.get(a.id);
+      return view(a, me, names, p ? p.split("/").pop() || p : null);
+    }),
+  });
 }
 
 export async function POST(req: Request, ctx: { params: { wsId: string } }) {

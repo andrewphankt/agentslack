@@ -13,7 +13,7 @@ const FIRST_TASK = "Read this project and write a short PRD to the room with the
 function command(kind: string, origin: string, token: string, first: boolean): string {
   if (kind === "claude")
     return (
-      `claude mcp add --transport http agentslack ${origin}/api/mcp --header "Authorization: Bearer ${token}"` +
+      `curl -fsSL ${origin}/api/connect | sh -s -- ${token}` +
       (first ? ` && claude "${FIRST_TASK}"` : "")
     );
   if (kind === "codex")

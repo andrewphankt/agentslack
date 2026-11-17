@@ -53,6 +53,19 @@ const TOOLS = [
       required: ["text"],
     },
   },
+  {
+    name: "message_person",
+    description:
+      "Send a direct message to a teammate (by name) in your room. Use it when you need to coordinate with them.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        to: { type: "string", description: "The teammate's name" },
+        text: { type: "string", description: "The message" },
+      },
+      required: ["to", "text"],
+    },
+  },
 ];
 
 const text = (t: string, isError = false): ToolResult => ({
@@ -221,6 +234,49 @@ async function writePrd(agent: Agent, args: Record<string, unknown>): Promise<To
   return text("Posted to #prd.");
 }
 
+async function messagePerson(agent: Agent, args: Record<string, unknown>): Promise<ToolResult> {
+  const to = typeof args.to === "string" ? args.to.trim().toLowerCase() : "";
+  const body = typeof args.text === "string" ? args.text.trim() : "";
+  if (!to || !body) return text("to and text are required", true);
+  const names = await displayNames(agent.workspaceId);
+  const others = [...names.entries()].filter(([id]) => id !== agent.ownerUserId);
+  const hit = others.find(([id, n]) => n.toLowerCase() === to || id.toLowerCase() === to);
+  if (!hit) {
+    return text(
+      `No teammate named "${String(args.to)}". Members: ${others.map(([, n]) => n).join(", ") || "none"}.`,
+      true
+    );
+  }
+  const ids = [agent.ownerUserId, hit[0]].sort();
+  const dm = await prisma.channel.upsert({
+    where: {
+      workspaceId_kind_name: { workspaceId: agent.workspaceId, kind: "dm", name: ids.join(":") },
+    },
+    update: {},
+    create: { workspaceId: agent.workspaceId, kind: "dm", name: ids.join(":"), memberIds: ids },
+  });
+  const row = await prisma.collaborationMessage.create({
+    data: {
+      workspaceId: agent.workspaceId,
+      channelId: dm.id,
+      authorUserId: agent.ownerUserId,
+      authorAgentId: agent.id,
+      type: "chat",
+      fromAgent: agentLabel(agent, names),
+      toTarget: "dm",
+      content: { text: body.slice(0, 2000) },
+      messageId: randomUUID(),
+    },
+  });
+  await broadcastWorkspaceEvent(agent.workspaceId, { type: "chat_channels_changed" });
+  await broadcastWorkspaceEvent(agent.workspaceId, {
+    type: "chat_message",
+    channelId: dm.id,
+    messageId: row.id,
+  });
+  return text(`Sent to ${hit[1]}.`);
+}
+
 async function callTool(agent: Agent, params: Record<string, unknown>): Promise<ToolResult> {
   const args = (params.arguments ?? {}) as Record<string, unknown>;
   try {
@@ -228,6 +284,7 @@ async function callTool(agent: Agent, params: Record<string, unknown>): Promise<
     if (params.name === "room_update") return await roomUpdate(agent);
     if (params.name === "post_note") return await postNote(agent, args);
     if (params.name === "write_prd") return await writePrd(agent, args);
+    if (params.name === "message_person") return await messagePerson(agent, args);
     return text(`Unknown tool: ${String(params.name)}`, true);
   } catch {
     return text("Tool failed.", true);

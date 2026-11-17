@@ -330,9 +330,26 @@ model Agent {
   tokenHash   String    @unique   // sha256 hex of the bearer token
   lastSeenAt  DateTime?
   lastPullAt  DateTime?
+  intent       String?
+  lastPromptAt DateTime?
   createdAt   DateTime  @default(now())
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  activity  FileActivity[]
 
   @@index([workspaceId])
+}
+
+model FileActivity {
+  id          String    @id @default(cuid())
+  workspaceId String
+  agentId     String
+  path        String
+  updatedAt   DateTime  @default(now())
+  warnedAt    DateTime?
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, path])
+  @@index([workspaceId, path])
 }
