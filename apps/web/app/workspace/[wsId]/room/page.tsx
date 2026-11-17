@@ -1036,6 +1036,7 @@ export default function RoomPage() {
           onGoLive={goLive}
           agent={myAgent}
           onAskAgent={askAgent}
+          roomApi={api}
         />
       ) : (
       <>

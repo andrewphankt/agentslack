@@ -13,6 +13,9 @@ const iconBtn =
  * The message bar: + picks a picture or video, the text, then your agent, GIF and Send.
  * Links typed or pasted into the text embed by themselves. Type @ to mention someone.
  */
+/** Remembered across channel switches for the life of the page. */
+const gifMemo: { on: boolean | null; trending: Gif[] } = { on: null, trending: [] };
+
 export function Composer({
   value,
   onChange,
@@ -65,21 +68,30 @@ export function Composer({
       window.removeEventListener("focus", done);
     };
   }, [opening]);
-  const [gifOn, setGifOn] = useState(false);
-  const [gifs, setGifs] = useState<Gif[]>([]);
+  // Search is assumed until the room says otherwise, and the first batch is fetched before
+  // the picker is opened, so it never flashes the paste-a-link fallback while loading.
+  const [gifOn, setGifOn] = useState(gifMemo.on ?? !!gifSearch);
+  const [gifs, setGifs] = useState<Gif[]>(gifMemo.trending);
 
   useEffect(() => {
-    if (!gifOpen || !gifSearch) return;
+    if (!gifSearch) return;
+    const q = /^https?:/i.test(gif) ? "" : gif.trim();
+    if (!gifOpen && (q || gifMemo.on !== null)) return;
     let dead = false;
-    const t = setTimeout(() => {
-      gifSearch(/^https?:/i.test(gif) ? "" : gif.trim())
-        .then((r) => {
-          if (dead) return;
-          setGifOn(r.on);
-          setGifs(r.items);
-        })
-        .catch(() => undefined);
-    }, 250);
+    const t = setTimeout(
+      () => {
+        gifSearch(q)
+          .then((r) => {
+            gifMemo.on = r.on;
+            if (!q) gifMemo.trending = r.items;
+            if (dead) return;
+            setGifOn(r.on);
+            setGifs(r.items);
+          })
+          .catch(() => undefined);
+      },
+      q ? 250 : 0
+    );
     return () => {
       dead = true;
       clearTimeout(t);

@@ -53,17 +53,19 @@ export async function POST(req: Request) {
     orderBy: { createdAt: "desc" },
     take: 5,
   });
+  let handed = false;
   for (const m of asks) {
     const c = m.content as { request?: unknown; deliveredAt?: unknown } | null;
     if (!c || typeof c.request !== "string" || c.deliveredAt) continue;
-    lines.push(
+    // Only the newest waiting request is handed over; older ones are closed with it.
+    if (!handed) lines.push(
       `REQUEST FROM THE ROOM: your owner pressed a button in the team room asking for the following. Do it now, in this turn, before anything else.\n${c.request}`
     );
     await prisma.collaborationMessage.update({
       where: { id: m.id },
       data: { content: { ...(m.content as object), deliveredAt: new Date().toISOString() } },
     });
-    break;
+    handed = true;
   }
 
   await prisma.agent.update({

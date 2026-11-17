@@ -38,6 +38,8 @@ type Props = {
   agent?: string | null;
   /** Leaves a request for your agent to set up the preview on this host. */
   onAskAgent: (host: string) => Promise<string | null>;
+  /** Calls this room's own routes (path starts after the room id). */
+  roomApi: (path: string, init?: RequestInit) => Promise<Response>;
 };
 
 const focus =
@@ -112,6 +114,7 @@ export function PreviewPanel({
   onGoLive,
   agent,
   onAskAgent,
+  roomApi,
 }: Props) {
   const [iframeKey, setIframeKey] = useState(0);
   const [view, setView] = useState<View>("desktop");
@@ -149,9 +152,82 @@ export function PreviewPanel({
   const [copied, setCopied] = useState(false);
   const [asked, setAsked] = useState(false);
   const [manual, setManual] = useState(false);
+  // One-click Netlify: on only when this copy of the app has a Netlify app id.
+  const [netlifyId, setNetlifyId] = useState<string | null>(null);
+  const [nSites, setNSites] = useState<{ id: string; name: string; url: string | null; match: boolean }[] | null>(null);
+  const [nBusy, setNBusy] = useState(false);
+  const nToken = useRef<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void roomApi("/hosts/netlify")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { on?: boolean; clientId?: string | null } | null) => {
+        if (live && j?.on && j.clientId) setNetlifyId(j.clientId);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [roomApi]);
+
+  async function netlifyConnect(siteId?: string) {
+    if (!nToken.current) return;
+    setNBusy(true);
+    setLinkErr(null);
+    try {
+      const res = await roomApi("/hosts/netlify", {
+        method: "POST",
+        body: JSON.stringify({ token: nToken.current, siteId }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        ok?: boolean;
+        building?: boolean;
+        sites?: { id: string; name: string; url: string | null; match: boolean }[];
+      };
+      if (!res.ok) return setLinkErr(j.error ?? "Could not connect Netlify");
+      if (j.sites) return setNSites(j.sites);
+      nToken.current = null;
+      setNSites(null);
+      setHost(null);
+      setEditing(false);
+      if (j.building === false)
+        setLinkErr("Connected. In Netlify, also switch on the draft preview for this project if the page stays empty.");
+    } finally {
+      setNBusy(false);
+    }
+  }
+
+  function netlifySignIn() {
+    if (!netlifyId) return;
+    const state = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    try {
+      window.localStorage.setItem("as:netlify-state", state);
+    } catch {}
+    const q = new URLSearchParams({
+      client_id: netlifyId,
+      response_type: "token",
+      redirect_uri: `${window.location.origin}/connect/netlify`,
+      state,
+    });
+    window.open(`https://app.netlify.com/authorize?${q}`, "as-netlify", "width=620,height=760");
+  }
+  useEffect(() => {
+    const on = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      const d = e.data as { type?: string; token?: string } | null;
+      if (d?.type !== "as:netlify" || typeof d.token !== "string") return;
+      nToken.current = d.token;
+      void netlifyConnect();
+    };
+    window.addEventListener("message", on);
+    return () => window.removeEventListener("message", on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     setAsked(false);
     setManual(false);
+    setNSites(null);
   }, [host]);
   const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -413,7 +489,46 @@ export function PreviewPanel({
                   </div>
                 )}
                 <div className="px-5 py-4">
-                  {picked && canAgent && !manual && (
+                  {picked?.key === "netlify" && netlifyId && !manual && (
+                    <div className="mb-2">
+                      {nSites ? (
+                        <>
+                          <p className="text-sm font-semibold">Which project is this room?</p>
+                          {nSites.length === 0 && (
+                            <p className="mt-1 text-xs text-zinc-500">You have no Netlify projects yet. Make one from this repo, then check again.</p>
+                          )}
+                          <ul className="mt-2 max-h-52 overflow-y-auto rounded border border-zinc-200">
+                            {nSites.map((x) => (
+                              <li key={x.id} className="border-b border-zinc-200 last:border-b-0">
+                                <button
+                                  type="button"
+                                  disabled={nBusy}
+                                  onClick={() => void netlifyConnect(x.id)}
+                                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-50 disabled:opacity-50 ${focus}`}
+                                >
+                                  <span className="min-w-0 flex-1 truncate font-semibold">{x.name}</span>
+                                  {x.match && <span className="shrink-0 text-xs text-zinc-500">This repo</span>}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                          <div className="mt-2 flex gap-2">
+                            <a href="https://app.netlify.com/start" target="_blank" rel="noopener noreferrer" className={ghost}>
+                              New Project
+                            </a>
+                            <button type="button" disabled={nBusy} className={ghost} onClick={() => void netlifyConnect()}>
+                              Check Again
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <button type="button" disabled={nBusy} className={`${solid} h-10 w-full`} onClick={netlifySignIn}>
+                          {nBusy ? "Connecting…" : "Connect Netlify"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {picked && canAgent && !manual && !nSites && (
                     <>
                       {asked ? (
                         <p role="status" className="text-sm text-zinc-700">

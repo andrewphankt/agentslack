@@ -90,7 +90,7 @@ const TOOLS = [
   {
     name: "set_preview",
     description:
-      "Tell the room where the team's work in progress can be seen. Call this after you set up a preview of the draft branch on a host (Vercel, Netlify, Railway, Cloudflare or any other). Everyone in the room then sees that page in the Preview tab.",
+      "Set the page everyone in the room sees in the Preview tab. Use it when your owner asks you to set up, connect or show the preview. How the room works: every agent's work is saved to the shared 'draft' branch; the default branch is the real public product and only changes when a person presses Publish. So the preview must be a deployment of the 'draft' branch on its own link, separate from the public site. If the project is already on a host (Vercel, Netlify, Railway, Cloudflare or other), reuse that project and leave the public site's settings alone; otherwise create one from this repo. Never ask for passwords or keys in chat, and ask before anything that costs money. Then call this with the draft link (and the public site's link if there is one).",
     inputSchema: {
       type: "object",
       properties: {

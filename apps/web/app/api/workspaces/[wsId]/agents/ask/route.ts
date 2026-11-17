@@ -26,6 +26,20 @@ export async function POST(req: Request, ctx: { params: { wsId: string } }) {
   const mine = await prisma.agent.count({ where: { workspaceId: wsId, ownerUserId: me } });
   if (!mine) return NextResponse.json({ error: "Connect your agent to the room first" }, { status: 400 });
 
+  // Pressing the button twice must not queue the job twice: one waiting request is enough.
+  const waiting = await prisma.collaborationMessage.findMany({
+    where: {
+      workspaceId: wsId,
+      type: "chat",
+      authorUserId: me,
+      createdAt: { gt: new Date(Date.now() - 24 * 3600_000) },
+      content: { path: ["forOwner"], equals: me },
+    },
+    select: { content: true },
+  });
+  if (waiting.some((m) => !(m.content as { deliveredAt?: unknown } | null)?.deliveredAt))
+    return NextResponse.json({ ok: true, already: true });
+
   const channel = await ensureChannel(wsId, "changes");
   const row = await prisma.collaborationMessage.create({
     data: {
