@@ -59,7 +59,7 @@ export function Invite({ inviteCode }: { inviteCode: string }) {
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="rounded-md bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
+        className="rounded-md bg-zinc-900 px-3 py-1 text-sm font-medium text-white hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1"
       >
         Invite
       </button>
@@ -76,14 +76,14 @@ export function Invite({ inviteCode }: { inviteCode: string }) {
             value={link}
             aria-label="Invite link"
             onFocus={(e) => e.currentTarget.select()}
-            className="mb-2 w-full rounded border border-zinc-300 bg-zinc-50 px-2 py-1.5 text-xs text-zinc-700 outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="mb-2 w-full rounded border border-zinc-300 bg-zinc-50 px-2 py-1.5 text-xs text-zinc-700 outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
           />
           <button
             type="button"
             autoFocus
             disabled={!link}
             onClick={() => void copy()}
-            className="w-full rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 disabled:opacity-60"
+            className="w-full rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1 disabled:opacity-60"
           >
             {copied ? "Copied" : "Copy link"}
           </button>

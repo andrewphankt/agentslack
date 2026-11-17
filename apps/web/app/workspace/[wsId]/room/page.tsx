@@ -3,6 +3,7 @@
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJsonHeaders } from "@/hooks/useActorUserId";
+import { AccountMenu } from "./AccountMenu";
 import { AgentNote } from "./AgentNote";
 import { AgentAvatar, Avatar, agentCode } from "./Avatar";
 import { ConnectAgent } from "./ConnectAgent";
@@ -84,7 +85,7 @@ export default function RoomPage() {
   const [agents, setAgents] = useState<AgentRow[]>([]);
   const [showConnect, setShowConnect] = useState(false);
   const [firstConnect, setFirstConnect] = useState(false);
-  const [prdArrived, setPrdArrived] = useState(false);
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
   const welcomeDone = useRef(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -133,7 +134,9 @@ export default function RoomPage() {
 
   const loadAgents = useCallback(async () => {
     const res = await api("/agents");
-    if (res.ok) setAgents(((await res.json()) as { agents: AgentRow[] }).agents);
+    if (!res.ok) return;
+    setAgents(((await res.json()) as { agents: AgentRow[] }).agents);
+    setAgentsLoaded(true);
   }, [api]);
 
   const loadDraft = useCallback(async () => {
@@ -163,7 +166,7 @@ export default function RoomPage() {
   }
 
   useEffect(() => {
-    if (previewOpen) void loadDraft();
+    void loadDraft();
   }, [previewOpen, loadDraft]);
 
   useEffect(
@@ -203,9 +206,17 @@ export default function RoomPage() {
     void loadAgents();
   }
 
-  const openChannel = useCallback((c: Channel) => {
+  const openChannel = useCallback((c: Channel, keepPreview = false) => {
     stickRef.current = true;
     setCurrent(c);
+    if (previewOpenRef.current && !keepPreview) {
+      setPreviewOpen(false);
+      try {
+        localStorage.setItem(`as:preview-open:${wsId}`, "0");
+      } catch {
+        /* storage unavailable */
+      }
+    }
     setMessages([]);
     setSidebarOpen(false);
     setUnread((u) => {
@@ -214,7 +225,7 @@ export default function RoomPage() {
       n.delete(c.id);
       return n;
     });
-  }, []);
+  }, [wsId]);
 
   // Escape closes the mobile sidebar.
   useEffect(() => {
@@ -239,12 +250,7 @@ export default function RoomPage() {
       if (list) {
         const prd = welcomeRef.current ? list.find((c) => c.kind === "channel" && c.name === "prd") : undefined;
         const g = prd ?? list.find((c) => c.kind === "channel" && c.name === "general") ?? list[0];
-        if (g) openChannel(g);
-        if (welcomeRef.current && !welcomeDone.current) {
-          welcomeDone.current = true;
-          setFirstConnect(true);
-          setShowConnect(true);
-        }
+        if (g) openChannel(g, true);
       }
     })();
   }, [api, loadChannels, openChannel]);
@@ -252,9 +258,24 @@ export default function RoomPage() {
   // Agents: on mount and every 30s (online dots); realtime refreshes below.
   useEffect(() => {
     void loadAgents();
-    const t = setInterval(() => void loadAgents(), 30_000);
+    const t = setInterval(() => void loadAgents(), showConnect ? 3_000 : 30_000);
     return () => clearInterval(t);
-  }, [loadAgents]);
+  }, [loadAgents, showConnect]);
+
+  // Step 3 of setting up: the room stays behind this until you have an agent here.
+  useEffect(() => {
+    if (!agentsLoaded || welcomeDone.current) return;
+    welcomeDone.current = true;
+    let skipped = false;
+    try {
+      skipped = localStorage.getItem(`as:agent-skip:${wsId}`) === "1";
+    } catch {
+      /* storage unavailable */
+    }
+    if (agents.some((a) => a.mine) || skipped) return;
+    setFirstConnect(true);
+    setShowConnect(true);
+  }, [agentsLoaded, agents, wsId]);
 
   // Load messages when channel changes.
   useEffect(() => {
@@ -312,10 +333,6 @@ export default function RoomPage() {
           }
           if (ev.type === "chat_message" && ev.channelId) {
             if (!channelsRef.current.some((c) => c.id === ev.channelId)) void loadChannels();
-            const prdId = channelsRef.current.find(
-              (c) => c.kind === "channel" && c.name === "prd"
-            )?.id;
-            if (ev.channelId === prdId) setPrdArrived(true);
             const changesId = channelsRef.current.find(
               (c) => c.kind === "channel" && c.name === "changes"
             )?.id;
@@ -482,17 +499,37 @@ export default function RoomPage() {
   }, [channels]);
 
   const row = (active: boolean) =>
-    `flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-      active ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:bg-zinc-900"
+    `flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 ${
+      active ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-200/70"
     }`;
   const heading = "text-[11px] uppercase tracking-wide text-zinc-500";
   const plus =
-    "rounded px-1 text-base leading-none text-zinc-400 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500";
-  const unreadDot = <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />;
+    "rounded px-1 text-base leading-none text-zinc-500 hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900";
+  const unreadDot = <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-500" />;
   const shownMembers = members.slice(0, 5);
+  const mine = members.find((m) => m.userId === me);
+  const avatarByName = useMemo(() => new Map(members.map((m) => [m.name, m.avatarUrl ?? null])), [members]);
+  const onlineIds = useMemo(() => new Set(agents.filter((a) => a.online).map((a) => a.id)), [agents]);
+  const newCount = draft?.status?.state === "ready" ? draft.status.ahead : 0;
+  const menuBtn = (
+    <button
+      type="button"
+      aria-label="Open menu"
+      aria-expanded={sidebarOpen}
+      className="-ml-1 rounded p-1 text-zinc-600 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 md:hidden"
+      onClick={() => setSidebarOpen((v) => !v)}
+    >
+      <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+        <path d="M3 5h14M3 10h14M3 15h14" />
+      </svg>
+    </button>
+  );
+  const account = (
+    <AccountMenu name={mine?.name ?? ""} avatarUrl={mine?.avatarUrl} headers={headers} onRenamed={() => void loadChannels()} />
+  );
 
   return (
-    <div className="fixed inset-0 flex bg-zinc-950 text-zinc-100">
+    <div className="fixed inset-0 flex bg-white text-zinc-900" style={{ colorScheme: "light" }}>
       {sidebarOpen && (
         <div
           aria-hidden
@@ -501,9 +538,28 @@ export default function RoomPage() {
         />
       )}
       <aside
-        className={`${sidebarOpen ? "absolute inset-y-0 left-0 z-20 flex" : "hidden"} w-60 shrink-0 flex-col gap-4 overflow-y-auto border-r border-zinc-800 bg-zinc-950 p-3 md:static md:z-auto md:flex`}
+        className={`${sidebarOpen ? "absolute inset-y-0 left-0 z-20 flex" : "hidden"} w-60 shrink-0 flex-col gap-4 overflow-y-auto border-r border-zinc-200 bg-[#f5f5f3] p-3 md:static md:z-auto md:flex`}
       >
         <RoomSwitcher wsId={wsId} name={wsName} headers={headers} />
+
+        <button
+          type="button"
+          className={row(previewOpen)}
+          aria-current={previewOpen ? "true" : undefined}
+          onClick={() => {
+            togglePreview(true);
+            setSidebarOpen(false);
+          }}
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <rect x="3" y="4" width="18" height="13" rx="1.5" />
+              <path d="M8 21h8M12 17v4" />
+            </svg>
+            <span className="truncate">Preview</span>
+          </span>
+          {newCount > 0 && <span className={`text-xs ${previewOpen ? "text-zinc-300" : "text-zinc-500"}`}>{newCount}</span>}
+        </button>
 
         <div>
           <div className={`mb-1 flex items-center justify-between px-2 ${heading}`}>
@@ -528,7 +584,7 @@ export default function RoomPage() {
               }}
               placeholder="channel-name"
               aria-label="New channel name"
-              className="mb-1 w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm outline-none focus:border-blue-500"
+              className="mb-1 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-zinc-900"
             />
           )}
           <SortableRows
@@ -538,9 +594,9 @@ export default function RoomPage() {
             renderItem={(c) => (
               <button
                 type="button"
-                className={row(current?.id === c.id)}
+                className={row(!previewOpen && current?.id === c.id)}
                 onClick={() => openChannel(c)}
-                aria-current={current?.id === c.id ? "true" : undefined}
+                aria-current={!previewOpen && current?.id === c.id ? "true" : undefined}
                 title="Drag, or Alt+Up and Alt+Down, to reorder"
               >
                 <span className="truncate"># {c.name}</span>
@@ -561,7 +617,7 @@ export default function RoomPage() {
                 <button
                   key={m.userId}
                   type="button"
-                  className={row(!!dm && current?.id === dm.id)}
+                  className={row(!previewOpen && !!dm && current?.id === dm.id)}
                   onClick={() => void openDm(m.userId)}
                 >
                   <span className="flex min-w-0 items-center gap-2">
@@ -589,7 +645,7 @@ export default function RoomPage() {
           {agents.map((a) => (
             <div
               key={a.id}
-              className="group flex items-center gap-2 rounded px-2 py-1 text-sm text-zinc-400"
+              className="group flex items-center gap-2 rounded px-2 py-1 text-sm text-zinc-700"
             >
               <AgentAvatar
                 ownerName={a.ownerName}
@@ -607,11 +663,11 @@ export default function RoomPage() {
                   <span className="block truncate text-xs text-zinc-500">{a.activeFile}</span>
                 )}
               </span>
-              {a.online && <span className="h-2 w-2 rounded-full bg-emerald-400" />}
+              {a.online && <span className="h-2 w-2 rounded-full bg-emerald-500" />}
               {a.mine && (
                 <button
                   type="button"
-                  className="hidden text-xs text-zinc-500 hover:text-red-400 focus-visible:block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 group-hover:block"
+                  className="hidden text-xs text-zinc-500 hover:text-red-600 focus-visible:block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 group-hover:block"
                   onClick={() => void removeAgent(a.id)}
                   onBlur={() => setConfirmId(null)}
                   aria-label="Remove agent"
@@ -622,32 +678,26 @@ export default function RoomPage() {
             </div>
           ))}
         </div>
-        <button
-          type="button"
-          className="mt-auto px-1 py-1 text-left text-xs text-zinc-500 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          onClick={async () => {
-            try {
-              await fetch("/api/auth/logout", { method: "POST" });
-            } finally {
-              window.location.href = "/";
-            }
-          }}
-        >
-          Sign out
-        </button>
       </aside>
       {showConnect && (
         <ConnectAgent
           wsId={wsId}
           headers={headers}
           mode={firstConnect ? "first" : "default"}
-          connected={prdArrived}
-          askPurpose={agents.some((a) => a.mine)}
+          summary={firstConnect && welcomeRef.current}
+          onlineIds={onlineIds}
+          roomName={wsName}
+          askPurpose={!firstConnect && agents.some((a) => a.mine)}
           onClose={() => {
             setShowConnect(false);
             if (firstConnect) {
               setFirstConnect(false);
-              router.replace(`/workspace/${wsId}/room`);
+              try {
+                localStorage.setItem(`as:agent-skip:${wsId}`, "1");
+              } catch {
+                /* storage unavailable */
+              }
+              if (welcomeRef.current) router.replace(`/workspace/${wsId}/room`);
             }
             void loadAgents();
           }}
@@ -655,23 +705,24 @@ export default function RoomPage() {
       )}
 
       <div className="relative flex min-w-0 flex-1">
+      {previewOpen ? (
+        <PreviewPanel
+          draft={draft}
+          reloadKey={reloadKey}
+          lead={menuBtn}
+          trail={account}
+          avatars={avatarByName}
+          onSaveLinks={saveLinks}
+          onGoLive={goLive}
+        />
+      ) : (
       <main
         className="flex min-w-0 flex-1 flex-col bg-white text-zinc-900"
         style={{ colorScheme: "light" }}
       >
         <header className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
-            <button
-              type="button"
-              aria-label="Open menu"
-              aria-expanded={sidebarOpen}
-              className="-ml-1 rounded p-1 text-zinc-600 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 md:hidden"
-              onClick={() => setSidebarOpen((v) => !v)}
-            >
-              <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
-                <path d="M3 5h14M3 10h14M3 15h14" />
-              </svg>
-            </button>
+            {menuBtn}
             <h1 className="truncate text-sm font-semibold">
               {current ? (current.kind === "dm" ? current.title : `# ${current.name}`) : ""}
             </h1>
@@ -692,16 +743,6 @@ export default function RoomPage() {
                 </span>
               )}
             </div>
-            <button
-              type="button"
-              aria-pressed={previewOpen}
-              onClick={() => togglePreview(!previewOpen)}
-              className={`rounded-md border px-3 py-[3px] text-sm font-medium text-zinc-800 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 ${
-                previewOpen ? "border-zinc-500 bg-zinc-100" : "border-zinc-300 bg-white"
-              }`}
-            >
-              Preview
-            </button>
             <Invite inviteCode={inviteCode} />
             <span
               role="img"
@@ -709,6 +750,7 @@ export default function RoomPage() {
               aria-label={live ? "Live" : "Reconnecting"}
               className={`h-2 w-2 rounded-full ${live ? "bg-emerald-500" : "bg-amber-500"}`}
             />
+            {account}
           </div>
         </header>
 
@@ -801,7 +843,7 @@ export default function RoomPage() {
               <button
                 type="button"
                 aria-label="Remove attachment"
-                className="grid h-6 w-6 place-items-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                className="grid h-6 w-6 place-items-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900"
                 onClick={() => {
                   URL.revokeObjectURL(picture.url);
                   setPicture(null);
@@ -844,14 +886,6 @@ export default function RoomPage() {
           </div>
         </div>
       </main>
-      {previewOpen && (
-        <PreviewPanel
-          draft={draft}
-          reloadKey={reloadKey}
-          onClose={() => togglePreview(false)}
-          onSaveLinks={saveLinks}
-          onGoLive={goLive}
-        />
       )}
       </div>
     </div>

@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Avatar } from "./Avatar";
+import { LOGO } from "./logos";
 
 export type DraftInfo = {
   repo: string | null;
@@ -21,48 +23,88 @@ export type DraftInfo = {
 type Props = {
   draft: DraftInfo | null;
   reloadKey: number;
-  onClose: () => void;
+  /** Left of the title: the menu button on small screens. */
+  lead?: ReactNode;
+  /** Right of the top bar: the person's picture menu. */
+  trail?: ReactNode;
+  avatars: Map<string, string | null>;
   onSaveLinks: (patch: { previewUrl?: string; liveUrl?: string }) => Promise<string | null>;
   onGoLive: () => Promise<string | null>;
 };
 
-const focus =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1";
-const ghost = `rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-sm text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 ${focus}`;
-const input = `w-full rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus-visible:ring-2 focus-visible:ring-blue-500`;
+const focus = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1";
+const ghost = `inline-flex h-9 items-center justify-center rounded border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-50 ${focus}`;
+const solid = `inline-flex h-9 items-center justify-center rounded bg-zinc-900 px-4 text-sm font-semibold text-white hover:bg-zinc-700 disabled:opacity-40 ${focus}`;
+const iconBtn = `grid h-8 w-8 place-items-center rounded border border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 disabled:opacity-40 ${focus}`;
 
-function statusLine(d: DraftInfo | null): string {
-  if (!d) return "";
-  if (!d.connected) return "Sign in with GitHub to go live";
+/** A faint colourless mesh behind the browser, so the team's own page is the colour on screen. */
+const MESH: React.CSSProperties = {
+  background: [
+    "linear-gradient(rgba(0,0,0,0.055) 1px, transparent 1px) 0 0 / 28px 28px",
+    "linear-gradient(90deg, rgba(0,0,0,0.055) 1px, transparent 1px) 0 0 / 28px 28px",
+    "radial-gradient(42% 52% at 22% 28%, #d4d4d0 0, transparent 70%)",
+    "radial-gradient(46% 56% at 82% 78%, #c9c9c5 0, transparent 70%)",
+    "#f5f5f3",
+  ].join(", "),
+};
+
+const HOSTS = [
+  {
+    key: "vercel",
+    name: "Vercel",
+    hint: "In Vercel, open the project, then Deployments, and copy the link of the newest one for draft.",
+    icon: <path d={LOGO.vercel} />,
+  },
+  {
+    key: "railway",
+    name: "Railway",
+    hint: "In Railway, add a second copy of the app that follows draft, then copy its public link from Settings.",
+    icon: <path d={LOGO.railway} />,
+  },
+  {
+    key: "cloudflare",
+    name: "Cloudflare",
+    hint: "In Cloudflare Pages, open the project, then Deployments, and copy the link shown for the draft branch.",
+    icon: <path d={LOGO.cloudflare} />,
+  },
+  {
+    key: "netlify",
+    name: "Netlify",
+    hint: "In Netlify, turn on branch deploys for draft, then copy the draft link from Deploys.",
+    icon: <path d={LOGO.netlify} />,
+  },
+] as const;
+
+function ago(iso: string): string {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return "now";
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+
+function whyNot(d: DraftInfo): string {
+  if (!d.connected) return "Sign in with GitHub to publish";
   const s = d.status;
-  if (!s || s.state === "no-draft") return "No shared draft yet";
-  if (s.state === "no-access") return "Your GitHub account cannot see this repo";
-  if (s.state === "nothing") return "Everything is live";
-  return `${s.ahead} ${s.ahead === 1 ? "change" : "changes"} not live yet`;
+  if (!s || s.state === "no-draft") return "Nothing saved yet";
+  if (s.state === "no-access") return "Your GitHub account cannot see this project";
+  return "Everything is public";
 }
 
-function IconRefresh() {
-  return (
-    <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5V6h-2.5" />
-    </svg>
-  );
-}
-
-export function PreviewPanel({ draft, reloadKey, onClose, onSaveLinks, onGoLive }: Props) {
+/** The Preview tab: the team's work so far in a browser, with what is new listed underneath. */
+export function PreviewPanel({ draft, reloadKey, lead, trail, avatars, onSaveLinks, onGoLive }: Props) {
   const [iframeKey, setIframeKey] = useState(0);
   const [editing, setEditing] = useState(false);
+  const [host, setHost] = useState<string | null>(null);
   const [previewIn, setPreviewIn] = useState("");
   const [liveIn, setLiveIn] = useState("");
   const [linkErr, setLinkErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [confirm, setConfirm] = useState(false);
   const [running, setRunning] = useState(false);
   const [goErr, setGoErr] = useState<string | null>(null);
   const [justLive, setJustLive] = useState(false);
-  const goBtnRef = useRef<HTMLButtonElement>(null);
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const [later, setLater] = useState(false);
+  const [skipped, setSkipped] = useState(false);
   const liveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Parent bumps reloadKey after a change reaches the room.
@@ -77,14 +119,20 @@ export function PreviewPanel({ draft, reloadKey, onClose, onSaveLinks, onGoLive 
     []
   );
 
+  const ahead = draft?.status?.state === "ready" ? draft.status.ahead : 0;
+  // "Not Yet" lasts until something new arrives.
+  useEffect(() => setLater(false), [ahead]);
+
   const previewUrl = draft?.previewUrl ?? null;
-  const showSetup = !!draft && (!previewUrl || editing);
-  const canGo = draft?.status?.state === "ready" && draft.connected && !running;
+  const showSetup = !!draft && (editing || (!previewUrl && !skipped));
+  const canGo = ahead > 0 && !!draft?.connected && !running;
+  const rows = (draft?.status?.changes ?? []).filter((c) => !/^Merge /.test(c.message));
 
   function startEdit() {
     setPreviewIn(draft?.previewUrl ?? "");
     setLiveIn(draft?.liveUrl ?? "");
     setLinkErr(null);
+    setHost("other");
     setEditing(true);
   }
 
@@ -97,235 +145,214 @@ export function PreviewPanel({ draft, reloadKey, onClose, onSaveLinks, onGoLive 
     setSaving(false);
     if (err) return setLinkErr(err);
     setEditing(false);
+    setHost(null);
   }
 
-  function openConfirm() {
-    setGoErr(null);
-    setConfirm(true);
-  }
-
-  function closeConfirm() {
-    if (running) return;
-    setConfirm(false);
-    goBtnRef.current?.focus();
-  }
-
-  useEffect(() => {
-    if (confirm) cancelRef.current?.focus();
-  }, [confirm]);
-
-  async function run() {
+  async function publish() {
     setRunning(true);
     setGoErr(null);
     const err = await onGoLive();
     setRunning(false);
     if (err) return setGoErr(err);
-    setConfirm(false);
     setJustLive(true);
-    liveTimer.current = setTimeout(() => setJustLive(false), 3000);
-    goBtnRef.current?.focus();
+    liveTimer.current = setTimeout(() => setJustLive(false), 4000);
   }
 
-  function dialogKey(e: React.KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      closeConfirm();
-      return;
-    }
-    if (e.key !== "Tab") return;
-    const els = dialogRef.current?.querySelectorAll<HTMLElement>("button:not([disabled])");
-    if (!els || !els.length) return;
-    const first = els[0];
-    const last = els[els.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  }
-
-  const changes = draft?.status?.changes ?? [];
-  const shown = changes.slice(0, 6);
-  const more = (draft?.status?.ahead ?? changes.length) - shown.length;
+  const picked = HOSTS.find((h) => h.key === host);
 
   return (
-    <aside
-      aria-label="Draft preview"
-      className="absolute inset-0 z-10 flex min-w-0 flex-col bg-white text-zinc-900 lg:static lg:z-auto lg:w-[440px] lg:shrink-0 lg:border-l lg:border-zinc-200"
-      style={{ colorScheme: "light" }}
-    >
-      <div className="border-b border-zinc-200 px-4 py-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold">Draft preview</h2>
-            {previewUrl && <p className="truncate text-xs text-zinc-500" title={previewUrl}>{previewUrl}</p>}
-            <p className="text-xs text-zinc-600" aria-live="polite">
-              {justLive ? "Live" : statusLine(draft)}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close preview"
-            className={`-mr-1 rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 ${focus}`}
-          >
-            <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
-              <path d="M5 5l10 10M15 5L5 15" />
-            </svg>
-          </button>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className={`${ghost} inline-flex items-center gap-1.5`}
-            disabled={!previewUrl}
-            onClick={() => setIframeKey((k) => k + 1)}
-          >
-            <IconRefresh />
-            Refresh
-          </button>
-          {previewUrl ? (
-            <a href={previewUrl} target="_blank" rel="noopener noreferrer" className={ghost}>
-              Open
+    <main className="flex min-w-0 flex-1 flex-col bg-white text-zinc-900" style={{ colorScheme: "light" }}>
+      <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-zinc-200 px-3.5">
+        {lead}
+        <h1 className="text-[15px] font-bold">Preview</h1>
+        <span className="flex-1" />
+        {previewUrl && !showSetup && (
+          <>
+            <button type="button" className={iconBtn} aria-label="Refresh" title="Refresh" onClick={() => setIframeKey((k) => k + 1)}>
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M20 11a8 8 0 1 0-2.3 6.3" />
+                <path d="M20 4v7h-7" />
+              </svg>
+            </button>
+            <a href={previewUrl} target="_blank" rel="noopener noreferrer" className={iconBtn} aria-label="Open in a new tab" title="Open in a new tab">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+              </svg>
             </a>
-          ) : (
-            <button type="button" className={ghost} disabled>
-              Open
+            <button type="button" className={iconBtn} aria-label="Change link" title="Change link" onClick={startEdit}>
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+              </svg>
             </button>
-          )}
-          {previewUrl && !editing && (
-            <button type="button" className={ghost} onClick={startEdit}>
-              Change link
-            </button>
-          )}
-          <button
-            ref={goBtnRef}
-            type="button"
-            disabled={!canGo}
-            onClick={openConfirm}
-            className={`ml-auto rounded-md bg-zinc-900 px-3 py-1 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 ${focus}`}
-          >
-            {justLive ? "Live" : "Go live"}
-          </button>
-        </div>
-      </div>
+          </>
+        )}
+        {trail}
+      </header>
 
-      <div className="min-h-0 flex-1 bg-zinc-50">
+      <div className="flex min-h-0 flex-1 p-4 sm:px-7 sm:py-5" style={MESH}>
         {!draft ? (
-          <p className="p-4 text-sm text-zinc-500">Loading…</p>
+          <p className="m-auto text-sm text-zinc-500">Loading…</p>
         ) : showSetup ? (
-          <div className="p-4">
-            <div className="rounded-lg border border-zinc-200 bg-white p-4">
-              <p className="text-sm font-medium">Add the link where your draft is hosted.</p>
-              <label className="mt-3 block text-xs text-zinc-600" htmlFor="pv-link">
-                Draft link
-              </label>
-              <input
-                id="pv-link"
-                value={previewIn}
-                onChange={(e) => setPreviewIn(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && void save()}
-                placeholder="https://"
-                inputMode="url"
-                className={input}
-              />
-              <p className="mt-1 text-xs text-zinc-500">
-                On Vercel this looks like your-project-git-draft-your-team.vercel.app
-              </p>
-              <label className="mt-3 block text-xs text-zinc-600" htmlFor="pv-live">
-                Live site link (optional)
-              </label>
-              <input
-                id="pv-live"
-                value={liveIn}
-                onChange={(e) => setLiveIn(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && void save()}
-                placeholder="https://"
-                inputMode="url"
-                className={input}
-              />
-              {linkErr && <p className="mt-2 text-xs text-red-600">{linkErr}</p>}
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => void save()}
-                  className={`rounded-md bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-60 ${focus}`}
-                >
-                  {saving ? "Saving…" : "Save"}
-                </button>
-                {editing && (
-                  <button type="button" className={ghost} onClick={() => setEditing(false)}>
-                    Cancel
+          <div className="m-auto flex w-full max-w-[620px] flex-col items-center gap-7">
+            <h2 className="text-center text-[28px] font-bold tracking-tight">Where does it run?</h2>
+            {!host ? (
+              <>
+                <div className="grid w-full grid-cols-2 gap-3.5 sm:grid-cols-4">
+                  {HOSTS.map((h) => (
+                    <button
+                      key={h.key}
+                      type="button"
+                      onClick={() => setHost(h.key)}
+                      className={`flex aspect-square flex-col items-center justify-center gap-3.5 rounded-md border border-zinc-200 bg-white hover:border-zinc-900 ${focus}`}
+                    >
+                      <svg viewBox="0 0 24 24" className="h-11 w-11" fill="currentColor" aria-hidden>
+                        {h.icon}
+                      </svg>
+                      <span className="text-[15px] font-semibold">{h.name}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2.5">
+                  <button type="button" className={ghost} onClick={() => setHost("other")}>
+                    Paste a Link
                   </button>
-                )}
+                  <button
+                    type="button"
+                    className={`h-9 rounded px-4 text-sm font-semibold text-zinc-500 hover:text-zinc-900 ${focus}`}
+                    onClick={() => {
+                      setSkipped(true);
+                      setEditing(false);
+                    }}
+                  >
+                    Skip
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="w-full max-w-md rounded-md border border-zinc-200 bg-white p-4">
+                <label className="block text-sm font-semibold" htmlFor="pv-link">
+                  {picked ? `Your ${picked.name} link` : "Link to your team's work in progress"}
+                </label>
+                {picked && <p className="mt-1 text-xs text-zinc-500">{picked.hint}</p>}
+                <input
+                  id="pv-link"
+                  autoFocus
+                  value={previewIn}
+                  onChange={(e) => setPreviewIn(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void save()}
+                  placeholder="https://"
+                  inputMode="url"
+                  className="mt-2 w-full rounded border border-zinc-300 bg-white px-2.5 py-2 text-sm outline-none placeholder:text-zinc-400 focus-visible:border-zinc-900"
+                />
+                <label className="mt-3 block text-xs text-zinc-600" htmlFor="pv-live">
+                  Public site link (optional)
+                </label>
+                <input
+                  id="pv-live"
+                  value={liveIn}
+                  onChange={(e) => setLiveIn(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void save()}
+                  placeholder="https://"
+                  inputMode="url"
+                  className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-2 text-sm outline-none placeholder:text-zinc-400 focus-visible:border-zinc-900"
+                />
+                {linkErr && <p className="mt-2 text-xs text-red-600">{linkErr}</p>}
+                <div className="mt-3 flex gap-2">
+                  <button type="button" disabled={saving} onClick={() => void save()} className={solid}>
+                    {saving ? "Saving…" : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    className={ghost}
+                    onClick={() => {
+                      setHost(null);
+                      if (previewUrl) setEditing(false);
+                    }}
+                  >
+                    Back
+                  </button>
+                </div>
               </div>
+            )}
+          </div>
+        ) : previewUrl ? (
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded border border-zinc-300 bg-white shadow-[0_34px_70px_-24px_rgba(0,0,0,0.30),0_10px_24px_-10px_rgba(0,0,0,0.14)]">
+            <div className="flex shrink-0 items-center gap-1.5 border-b border-zinc-200 px-3 py-2">
+              <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
+              <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
+              <span className="h-[9px] w-[9px] rounded-full bg-zinc-300" />
+              <span className="ml-2 truncate text-xs text-zinc-500">{previewUrl.replace(/^https?:\/\//, "")}</span>
             </div>
+            <iframe
+              key={iframeKey}
+              src={previewUrl}
+              title="Preview"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+              className="min-h-0 w-full flex-1 border-0 bg-white"
+            />
           </div>
         ) : (
-          <iframe
-            key={iframeKey}
-            src={previewUrl ?? undefined}
-            title="Draft preview"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-            className="h-full w-full border-0 bg-white"
-          />
+          <button type="button" className={`${ghost} m-auto`} onClick={() => setSkipped(false)}>
+            Add a Preview Link
+          </button>
         )}
       </div>
 
-      {confirm && (
-        <div
-          className="absolute inset-0 z-20 grid place-items-center bg-black/40 p-4"
-          onKeyDown={dialogKey}
-          onMouseDown={(e) => e.target === e.currentTarget && closeConfirm()}
-        >
-          <div
-            ref={dialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="golive-title"
-            className="w-full max-w-sm rounded-lg bg-white p-4 shadow-xl"
-          >
-            <h3 id="golive-title" className="text-base font-semibold">
-              Send the draft live?
-            </h3>
-            {shown.length > 0 && (
-              <ul className="mt-3 space-y-1.5 text-sm">
-                {shown.map((c, i) => (
-                  <li key={i} className="flex gap-2">
-                    <span className="shrink-0 font-medium">{c.who}</span>
-                    <span className="min-w-0 truncate text-zinc-600" title={c.message}>
-                      {c.message}
-                    </span>
-                  </li>
-                ))}
-                {more > 0 && <li className="text-zinc-500">+{more} more</li>}
-              </ul>
-            )}
-            <p className="mt-3 text-sm text-zinc-700">Everyone&apos;s saved work goes to the real site.</p>
-            {goErr && (
-              <p role="alert" className="mt-3 rounded bg-red-50 px-2 py-1.5 text-sm text-red-700">
-                {goErr}
-              </p>
-            )}
-            <div className="mt-4 flex justify-end gap-2">
-              <button ref={cancelRef} type="button" className={ghost} onClick={closeConfirm} disabled={running}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={running}
-                onClick={() => void run()}
-                className={`rounded-md bg-zinc-900 px-3 py-1 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-60 ${focus}`}
-              >
-                {running ? "Going live…" : "Go live"}
-              </button>
-            </div>
-          </div>
+      <section aria-label="New" className="flex h-[190px] shrink-0 flex-col border-t border-zinc-200 bg-white">
+        <div className="flex min-h-[52px] shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-zinc-200 px-3.5 py-2">
+          {!draft ? null : justLive ? (
+            <span className="font-bold" aria-live="polite">
+              Published
+            </span>
+          ) : ahead > 0 ? (
+            <>
+              <span className="font-bold">{ahead} new</span>
+              {!later && <span className="text-zinc-500">Looks good?</span>}
+            </>
+          ) : (
+            <span className="text-zinc-500">{whyNot(draft)}</span>
+          )}
+          {goErr && (
+            <span role="alert" className="text-sm text-red-600">
+              {goErr}
+            </span>
+          )}
+          <span className="flex-1" />
+          {ahead > 0 && !justLive && (
+            <>
+              {!later && (
+                <button type="button" className={ghost} disabled={running} onClick={() => setLater(true)}>
+                  Not Yet
+                </button>
+              )}
+              <span className="group relative inline-flex">
+                <button type="button" className={solid} disabled={!canGo} onClick={() => void publish()} aria-describedby="publish-tip">
+                  {running ? "Publishing…" : "Publish"}
+                </button>
+                <span
+                  id="publish-tip"
+                  role="tooltip"
+                  className="pointer-events-none absolute bottom-[calc(100%+10px)] right-0 hidden whitespace-nowrap rounded bg-zinc-900 px-3 py-2 text-xs font-medium text-white group-focus-within:block group-hover:block"
+                >
+                  Sends your team&apos;s changes to the public site
+                </span>
+              </span>
+            </>
+          )}
         </div>
-      )}
-    </aside>
+        <ul className="min-h-0 flex-1 overflow-y-auto">
+          {rows.map((c, i) => (
+            <li key={i} className={`flex min-h-9 items-center gap-3 px-3.5 text-sm ${i ? "border-t border-zinc-200" : ""}`}>
+              <Avatar name={c.who} avatarUrl={avatars.get(c.who)} size={20} />
+              <span className="min-w-0 flex-1 truncate font-semibold" title={c.message}>
+                {c.message === "Saved turn" || !c.message ? "Saved work" : c.message}
+              </span>
+              <span className="w-28 shrink-0 truncate text-[13px] text-zinc-500">{c.who}</span>
+              <span className="w-10 shrink-0 text-right text-[13px] text-zinc-500">{ago(c.at)}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </main>
   );
 }

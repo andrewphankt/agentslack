@@ -9,7 +9,11 @@ export async function POST(req: Request) {
   const agent = await agentFromBearer(req);
   if (!agent) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const old = String((await req.formData().catch(() => null))?.get("old") ?? "");
-  if (!old.startsWith("as_")) return Response.json({ replaced: 0 });
+  if (!old.startsWith("as_")) {
+    // A plain check-in: the installer finished, so the room can show this agent as connected.
+    await broadcastWorkspaceEvent(agent.workspaceId, { type: "agents_changed" });
+    return Response.json({ replaced: 0 });
+  }
   const gone = await prisma.agent.deleteMany({
     where: {
       tokenHash: hashAgentToken(old),
@@ -174,6 +178,8 @@ if [ -z "$AGENTSLACK_SKIP_MCP" ] && command -v claude >/dev/null 2>&1; then
   claude mcp remove agentslack >/dev/null 2>&1
   claude mcp add --transport http agentslack "$ORIGIN/api/mcp" --header "Authorization: Bearer $TOKEN" >/dev/null 2>&1
 fi
+
+curl -fsS --max-time 5 -X POST -H "Authorization: Bearer $TOKEN" "$ORIGIN/api/connect" >/dev/null 2>&1
 
 echo "Connected this folder to your team room."
 echo "Your work now saves to the shared draft branch each time Claude finishes a turn."

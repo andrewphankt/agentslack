@@ -46,7 +46,7 @@ export function RoomSwitcher({
 
   const title = name || "Room";
   const tile = (label: string) => (
-    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-zinc-700 text-xs font-semibold uppercase text-zinc-100">
+    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-zinc-900 text-xs font-semibold uppercase text-white">
       {label.trim().charAt(0) || "?"}
     </span>
   );
@@ -58,7 +58,7 @@ export function RoomSwitcher({
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-2 text-left hover:border-zinc-700"
+        className="flex w-full items-center gap-2 rounded-md border border-zinc-200 bg-white px-2 py-2 text-left hover:border-zinc-900"
       >
         {tile(title)}
         <span className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</span>
@@ -70,7 +70,7 @@ export function RoomSwitcher({
       {open && (
         <div
           role="menu"
-          className="absolute left-0 right-0 top-full z-20 mt-1 rounded-lg border border-zinc-800 bg-zinc-900 p-1 shadow-xl"
+          className="absolute left-0 right-0 top-full z-20 mt-1 rounded-md border border-zinc-900 bg-white p-1"
         >
           <div className="max-h-64 overflow-y-auto">
             {rooms.map((r) => (
@@ -79,24 +79,24 @@ export function RoomSwitcher({
                 role="menuitem"
                 href={`/workspace/${r.workspaceId}/room`}
                 onClick={() => setOpen(false)}
-                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-zinc-200 hover:bg-zinc-800"
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-zinc-900 hover:bg-zinc-100"
               >
                 {tile(r.name)}
                 <span className="min-w-0 flex-1 truncate">{r.name}</span>
-                {r.workspaceId === wsId && <span className="text-xs text-zinc-400">✓</span>}
+                {r.workspaceId === wsId && <span className="text-xs text-zinc-500">✓</span>}
               </Link>
             ))}
           </div>
 
-          <div className="my-1 border-t border-zinc-800" />
+          <div className="my-1 border-t border-zinc-200" />
 
           <button
             type="button"
             role="menuitem"
             onClick={() => router.push("/start")}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-zinc-200 hover:bg-zinc-800"
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-zinc-900 hover:bg-zinc-100"
           >
-            <span className="grid h-7 w-7 place-items-center rounded-md border border-dashed border-zinc-600 text-zinc-400">
+            <span className="grid h-7 w-7 place-items-center rounded-md border border-dashed border-zinc-400 text-zinc-500">
               +
             </span>
             New room
@@ -104,7 +104,7 @@ export function RoomSwitcher({
           <Link
             role="menuitem"
             href={`/workspace/${wsId}`}
-            className="block rounded-md px-2 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800"
+            className="block rounded-md px-2 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100"
           >
             Room settings
           </Link>
