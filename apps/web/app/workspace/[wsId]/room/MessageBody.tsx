@@ -185,14 +185,17 @@ export function MessageBody({
     if (!list.length) return null;
     return new RegExp(`(@(?:${list.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")}))`, "g");
   }, [mentions]);
-  const pieces = useMemo(() => parts(text), [text]);
+  const all = useMemo(() => parts(text), [text]);
+  // A GIF is shown as the picture itself, so its link is left out of the words.
+  const pieces = useMemo(() => all.filter((p) => !(p.url && kindFromUrl(p.url) === "gif")), [all]);
+  const hasWords = pieces.some((p) => p.text.trim());
   const embedUrls = useMemo(
-    () => Array.from(new Set(pieces.flatMap((p) => (p.url ? [p.url] : [])))).slice(0, 3),
-    [pieces]
+    () => Array.from(new Set(all.flatMap((p) => (p.url ? [p.url] : [])))).slice(0, 3),
+    [all]
   );
   return (
     <>
-      {text && (
+      {text && hasWords && (
         <div className="max-w-[72ch] whitespace-pre-wrap break-words text-sm text-zinc-800">
           {pieces.map((p, i) =>
             p.url ? (
